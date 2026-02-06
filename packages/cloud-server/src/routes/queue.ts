@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/database.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { logger } from '../lib/logger.js';
+import { ValidationError } from '../types/errors.js';
 
 export const queueRoutes = Router();
 
@@ -140,6 +141,57 @@ queueRoutes.get(
         complete,
         failed,
       },
+    });
+  })
+);
+
+// POST /api/queue/addresses - Queue multiple addresses for scraping
+queueRoutes.post(
+  '/addresses',
+  asyncHandler(async (req, res) => {
+    const { addresses } = req.body;
+
+    if (!Array.isArray(addresses) || addresses.length === 0) {
+      throw new ValidationError('addresses must be a non-empty array');
+    }
+
+    // Validate each address has required fields
+    for (const addr of addresses) {
+      if (!addr.addressFull || !addr.streetNumber || !addr.streetName || !addr.zipCode) {
+        throw new ValidationError(
+          'Each address must have addressFull, streetNumber, streetName, zipCode'
+        );
+      }
+    }
+
+    // Bulk create properties with PENDING_SCRAPE status
+    const properties = await prisma.property.createMany({
+      data: addresses.map((addr: any) => ({
+        addressFull: addr.addressFull,
+        streetNumber: addr.streetNumber,
+        streetName: addr.streetName,
+        zipCode: addr.zipCode,
+        city: addr.city,
+        state: addr.state,
+        latitude: addr.latitude,
+        longitude: addr.longitude,
+        status: 'PENDING_SCRAPE',
+      })),
+    });
+
+    // Fetch created properties to return them
+    const createdProperties = await prisma.property.findMany({
+      where: {
+        addressFull: { in: addresses.map((a: any) => a.addressFull) },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: addresses.length,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: createdProperties,
+      count: properties.count,
     });
   })
 );
