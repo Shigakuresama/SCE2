@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PropertyStatus } from '../types';
 import { PropertyList } from '../components/PropertyList';
 import { useApp } from '../contexts/AppContext';
@@ -6,6 +6,11 @@ import { useApp } from '../contexts/AppContext';
 export const Properties: React.FC = () => {
   const { properties, loading, error, fetchProperties, clearError } = useApp();
   const [filter, setFilter] = useState<PropertyStatus | 'ALL'>('ALL');
+
+  // Auto-load properties on mount
+  useEffect(() => {
+    fetchProperties();
+  }, [fetchProperties]);
 
   const filteredProperties = properties.filter((property) => {
     if (filter === 'ALL') return true;
