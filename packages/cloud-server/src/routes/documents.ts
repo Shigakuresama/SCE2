@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { param, validationResult } from 'express-validator';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs/promises';
 import { prisma } from '../lib/database.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { ValidationError } from '../types/errors.js';
+import { ValidationError, NotFoundError } from '../types/errors.js';
 
 export const documentRoutes = Router();
 
@@ -148,5 +149,66 @@ documentRoutes.delete(
     });
 
     res.json({ success: true, message: 'Document deleted' });
+  })
+);
+
+// POST /api/properties/:propertyId/documents - Upload document as base64 (for mobile)
+documentRoutes.post(
+  '/properties/:propertyId/documents',
+  asyncHandler(async (req, res) => {
+    const propertyId = parseInt(req.params.propertyId);
+    const { docType, fileName, base64Data, mimeType } = req.body;
+
+    // Validate required fields
+    if (!docType || !fileName || !base64Data || !mimeType) {
+      throw new ValidationError(
+        'Missing required fields: docType, fileName, base64Data, mimeType'
+      );
+    }
+
+    // Validate property exists
+    const property = await prisma.property.findUnique({
+      where: { id: propertyId },
+    });
+
+    if (!property) {
+      throw new NotFoundError('Property', propertyId.toString());
+    }
+
+    // Convert base64 to buffer
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Create uploads directory if it doesn't exist
+    const uploadDir = process.env.UPLOAD_DIR || './uploads';
+    await fs.mkdir(uploadDir, { recursive: true });
+
+    // Generate unique filename
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const extension = path.extname(fileName) || '.jpg';
+    const uniqueFileName = `${uniqueSuffix}${extension}`;
+    const filePath = path.join(uploadDir, uniqueFileName);
+
+    // Write file to disk
+    await fs.writeFile(filePath, buffer);
+
+    // Create document record
+    const document = await prisma.document.create({
+      data: {
+        propertyId,
+        docType,
+        fileName: uniqueFileName,
+        filePath,
+        fileSize: buffer.length,
+        mimeType,
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id: document.id,
+        url: `/api/documents/${document.id}`,
+      },
+    });
   })
 );

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { PropertyLoader } from './components/PropertyLoader';
 import { PropertyInfo } from './components/PropertyInfo';
 import { FieldDataForm } from './components/FieldDataForm';
+import { PhotoCapture } from './components/PhotoCapture';
 import type { MobilePropertyData } from './types';
 import './index.css';
 
@@ -81,10 +82,14 @@ function App() {
                   onSuccess={handlePropertyUpdate}
                 />
 
+                <PhotoCapture
+                  propertyId={displayProperty.id}
+                  docType="BILL"
+                  label="Photo: Utility Bill"
+                />
+
                 <div className="bg-white rounded-lg shadow-md p-6 text-center">
-                  <p className="text-gray-600">
-                    Photo capture and signature coming soon...
-                  </p>
+                  <p className="text-gray-600">Signature capture coming soon...</p>
                 </div>
               </div>
             </>
