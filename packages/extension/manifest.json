@@ -21,7 +21,7 @@
   "content_scripts": [
     {
       "matches": ["https://sce.dsmcentral.com/*"],
-      "js": ["lib/utils.js", "content.js"],
+      "js": ["lib/sce-helper.js", "lib/utils.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
