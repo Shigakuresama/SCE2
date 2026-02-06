@@ -9,10 +9,10 @@ export const Navigation: React.FC = () => {
   };
 
   const navLinks = [
-    { path: '/', label: 'Dashboard' },
-    { path: '/properties', label: 'Properties' },
-    { path: '/queue', label: 'Queue' },
-    { path: '/settings', label: 'Settings' },
+    { path: '/', label: 'Dashboard', icon: '🏠' },
+    { path: '/properties', label: 'Properties', icon: '📋' },
+    { path: '/queue', label: 'Queue', icon: '📬' },
+    { path: '/settings', label: 'Settings', icon: '⚙️' },
   ];
 
   return (
@@ -37,6 +37,7 @@ export const Navigation: React.FC = () => {
                       : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                   }`}
                 >
+                  <span className="mr-2">{link.icon}</span>
                   {link.label}
                 </Link>
               ))}
