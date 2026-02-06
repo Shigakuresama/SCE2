@@ -1,0 +1,86 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Property model - tracks each address through the workflow
+model Property {
+  id            Int       @id @default(autoincrement())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Address fields (from Overpass/SCE website)
+  addressFull   String
+  streetNumber  String
+  streetName    String
+  zipCode       String
+  city          String?
+  state         String?
+  latitude      Float?
+  longitude     Float?
+
+  // Scraped data (from extension - Phase 1)
+  customerName  String?
+  customerPhone String?
+  customerEmail String?
+
+  // Field data (from mobile - Phase 2)
+  customerAge   Int?
+  fieldNotes    String?
+
+  // Submission tracking
+  sceCaseId     String?   // SCE's case ID after submission
+
+  // Status workflow
+  status        String @default("PENDING_SCRAPE")
+
+  // Relations
+  documents     Document[]
+  route         Route?    @relation(fields: [routeId], references: [id])
+  routeId       Int?
+
+  @@index([status])
+  @@index([routeId])
+}
+
+model Document {
+  id          Int      @id @default(autoincrement())
+  createdAt   DateTime @default(now())
+
+  propertyId  Int
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  docType     String
+  fileName    String
+  filePath    String
+  fileSize    Int
+  mimeType    String
+
+  @@index([propertyId])
+}
+
+model Route {
+  id          Int       @id @default(autoincrement())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  name        String    // User-defined route name
+  description String?
+
+  properties  Property[]
+
+  @@index([createdAt])
+}
+
+// Property Status values (SQLite doesn't support enums)
+// Valid values: PENDING_SCRAPE, READY_FOR_FIELD, VISITED, READY_FOR_SUBMISSION, COMPLETE, FAILED
+
+// Document Type values (SQLite doesn't support enums)
+// Valid values: BILL, UNIT, SIGNATURE, W9, OTHER

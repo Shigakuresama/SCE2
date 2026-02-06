@@ -1,0 +1,35 @@
+{
+  "name": "sce2",
+  "version": "1.0.0",
+  "description": "SCE Rebate Automation System v2.0 - Cloud-Hybrid Platform",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:cloud\" \"npm run dev:web\" \"npm run dev:mobile\"",
+    "dev:cloud": "npm run dev --workspace=packages/cloud-server",
+    "dev:web": "npm run dev --workspace=packages/webapp",
+    "dev:mobile": "npm run dev --workspace=packages/mobile-web",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.32",
+    "concurrently": "^8.2.2",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "dependencies": {
+    "@prisma/client": "7.3.0",
+    "prisma": "7.3.0"
+  }
+}
