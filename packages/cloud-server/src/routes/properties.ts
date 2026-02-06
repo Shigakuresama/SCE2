@@ -177,3 +177,41 @@ propertyRoutes.delete(
     res.json({ success: true, message: 'Property deleted' });
   })
 );
+
+// GET /api/properties/:id/mobile-data - Get property data for mobile view
+propertyRoutes.get(
+  '/:id/mobile-data',
+  asyncHandler(async (req, res) => {
+    const property = await prisma.property.findUnique({
+      where: { id: parseInt(req.params.id) },
+      include: { documents: true },
+    });
+
+    if (!property) {
+      throw new NotFoundError('Property', req.params.id);
+    }
+
+    // Return mobile-optimized data
+    res.json({
+      success: true,
+      data: {
+        id: property.id,
+        addressFull: property.addressFull,
+        streetNumber: property.streetNumber,
+        streetName: property.streetName,
+        zipCode: property.zipCode,
+        city: property.city,
+        state: property.state,
+        latitude: property.latitude,
+        longitude: property.longitude,
+        customerName: property.customerName,
+        customerPhone: property.customerPhone,
+        customerEmail: property.customerEmail,
+        customerAge: property.customerAge,
+        fieldNotes: property.fieldNotes,
+        status: property.status,
+        documents: property.documents,
+      },
+    });
+  })
+);
