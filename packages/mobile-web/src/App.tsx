@@ -3,6 +3,7 @@ import { PropertyLoader } from './components/PropertyLoader';
 import { PropertyInfo } from './components/PropertyInfo';
 import { FieldDataForm } from './components/FieldDataForm';
 import { PhotoCapture } from './components/PhotoCapture';
+import { SignaturePad } from './components/SignaturePad';
 import type { MobilePropertyData } from './types';
 import './index.css';
 
@@ -88,9 +89,11 @@ function App() {
                   label="Photo: Utility Bill"
                 />
 
-                <div className="bg-white rounded-lg shadow-md p-6 text-center">
-                  <p className="text-gray-600">Signature capture coming soon...</p>
-                </div>
+                <SignaturePad
+                  propertyId={displayProperty.id}
+                  docType="SIGNATURE"
+                  label="Customer Signature"
+                />
               </div>
             </>
           );
