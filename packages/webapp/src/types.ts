@@ -74,9 +74,12 @@ export interface ApiResponse<T> {
 }
 
 export interface QueueStatus {
-  scrapeQueue: number;
-  submitQueue: number;
-  processing: boolean;
+  pendingScrape: number;
+  readyForField: number;
+  visited: number;
+  readyForSubmission: number;
+  complete: number;
+  failed: number;
 }
 
 export interface PropertyFilters {
