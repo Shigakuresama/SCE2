@@ -11,7 +11,7 @@ interface QueueStatus {
 }
 
 // Load configuration
-async function loadConfig(): Promise<ExtensionConfig> {
+async function loadPopupConfig(): Promise<ExtensionConfig> {
   const result = await chrome.storage.sync.get({
     apiBaseUrl: 'http://localhost:3333',
     pollInterval: 5000,
@@ -26,7 +26,7 @@ async function loadConfig(): Promise<ExtensionConfig> {
 }
 
 // Save configuration
-async function saveConfig(config: ExtensionConfig): Promise<void> {
+async function savePopupConfig(config: ExtensionConfig): Promise<void> {
   await chrome.storage.sync.set(config);
 }
 
@@ -43,7 +43,7 @@ async function getQueueStatus(): Promise<QueueStatus> {
 
 // Update UI
 async function updateUI(): Promise<void> {
-  const config = await loadConfig();
+  const config = await loadPopupConfig();
   const status = await getQueueStatus();
 
   // Update config inputs
@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const apiBaseUrl = (document.getElementById('api-url') as HTMLInputElement).value;
     const pollInterval = parseInt((document.getElementById('poll-interval') as HTMLInputElement).value);
 
-    await saveConfig({ apiBaseUrl, pollInterval, autoProcess: false });
+    await savePopupConfig({ apiBaseUrl, pollInterval, autoProcess: false });
 
     // Show saved confirmation
     const btn = document.getElementById('save-btn') as HTMLButtonElement;
@@ -90,10 +90,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Toggle button
   document.getElementById('toggle-btn')!.addEventListener('click', async () => {
-    const config = await loadConfig();
+    const config = await loadPopupConfig();
     const newAutoProcess = !config.autoProcess;
 
-    await saveConfig({ ...config, autoProcess: newAutoProcess });
+    await savePopupConfig({ ...config, autoProcess: newAutoProcess });
 
     if (newAutoProcess) {
       chrome.runtime.sendMessage({ action: 'START_PROCESSING' });

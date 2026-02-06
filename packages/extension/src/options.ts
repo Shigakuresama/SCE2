@@ -8,7 +8,7 @@ interface OptionsConfig {
 }
 
 // Load configuration
-async function loadConfig(): Promise<OptionsConfig> {
+async function loadOptionsConfig(): Promise<OptionsConfig> {
   const result = await chrome.storage.sync.get({
     apiBaseUrl: 'http://localhost:3333',
     pollInterval: 5000,
@@ -29,7 +29,7 @@ async function loadConfig(): Promise<OptionsConfig> {
 }
 
 // Save configuration
-async function saveConfig(config: Partial<OptionsConfig>): Promise<void> {
+async function saveOptionsConfig(config: Partial<OptionsConfig>): Promise<void> {
   await chrome.storage.sync.set(config);
 }
 
@@ -46,7 +46,7 @@ function showStatus(message: string, isError = false): void {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
-  const config = await loadConfig();
+  const config = await loadOptionsConfig();
 
   // Populate form
   (document.getElementById('api-url') as HTMLInputElement).value = config.apiBaseUrl;
@@ -73,12 +73,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    if (newConfig.pollInterval < 1000 || newConfig.pollInterval > 60000) {
+    if (newConfig.pollInterval !== undefined && (newConfig.pollInterval < 1000 || newConfig.pollInterval > 60000)) {
       showStatus('Poll interval must be between 1000 and 60000', true);
       return;
     }
 
-    await saveConfig(newConfig);
+    await saveOptionsConfig(newConfig);
     showStatus('Configuration saved successfully!');
   });
 });
