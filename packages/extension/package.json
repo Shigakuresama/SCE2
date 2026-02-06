@@ -2,13 +2,15 @@
   "name": "@sce2/extension",
   "version": "1.0.0",
   "description": "SCE2 Chrome Extension - Scraper and Submitter",
+  "type": "module",
   "scripts": {
-    "build": "npm run build:copy && npm run build:content",
-    "build:copy": "rsync -av --exclude='*.ts' --exclude='src' src/ dist/",
-    "build:content": "tsc",
-    "dev": "npm run build:content -- --watch",
+    "dev": "tsc --watch",
+    "build": "npm run build:copy && npm run build:compile",
+    "build:copy": "rsync -av --exclude='*.ts' --exclude='*.map' src/ dist/ && rsync -av manifest.json dist/",
+    "build:compile": "tsc",
     "package": "npm run build && cd dist && zip -r ../sce2-extension.zip .",
-    "test": "node tests/utils.test.js"
+    "clean": "rm -rf dist",
+    "test": "vitest run"
   },
   "dependencies": {
     "jspdf": "^2.5.1",
