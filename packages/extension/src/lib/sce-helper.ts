@@ -1,75 +1,240 @@
 // SCE Helper class for form interactions
-// Reused from SCE project with improvements
+// Enhanced with Angular Material patterns from SCE v1
+
+// ==========================================
+// TYPE DEFINITIONS
+// ==========================================
+
+export interface CustomerSearchData {
+  address: string;
+  zipCode: string;
+}
+
+export interface CustomerInfoData {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email?: string;
+}
+
+export interface SelectOption {
+  selector: string;
+  value: string;
+  byLabel?: boolean;
+}
+
+export interface DocumentData {
+  url: string;
+  name: string;
+  type: string;
+}
+
+// ==========================================
+// UTILITY FUNCTIONS
+// ==========================================
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ==========================================
+// SCE HELPER CLASS
+// ==========================================
 
 export class SCEHelper {
   // ==========================================
-  // FIELD FILLING
+  // FIELD FILLING (Angular Material Pattern)
   // ==========================================
-  async fillField(selector: string, value: string): Promise<void> {
+  async fillField(selector: string, value: string, fieldName = 'field'): Promise<void> {
     const element = document.querySelector(selector) as HTMLInputElement;
 
     if (!element) {
-      throw new Error(`Element not found: ${selector}`);
+      throw new Error(`Element not found: ${selector} (field: ${fieldName})`);
     }
 
+    console.log(`Filling ${fieldName}:`, value);
+
+    // Focus with click (critical for Angular)
     element.focus();
-    element.value = value;
+    element.click();
+    await sleep(150);
+
+    // Clear existing value
+    element.value = '';
     element.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(50);
+
+    // Use native setter for Angular to detect
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value'
+    )?.set;
+
+    if (nativeInputValueSetter) {
+      nativeInputValueSetter.call(element, value);
+    } else {
+      element.value = value;
+    }
+
+    // Trigger comprehensive events
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+
+    // Wait for Angular to process
+    await sleep(300);
+
+    // Verify value was set
+    if (element.value !== value) {
+      console.warn(`Field ${fieldName} not set correctly, retrying...`);
+      // Retry with simpler approach
+      await sleep(200);
+      element.focus();
+      element.value = value;
+      element.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(200);
+    }
+
     element.blur();
   }
 
-  async fillSelect(selector: string, value: string): Promise<void> {
-    const trigger = document.querySelector(selector) as HTMLElement;
+  // ==========================================
+  // DROPDOWN SELECTION (Angular Material Pattern)
+  // ==========================================
+  async fillSelect(selector: string, value: string, byLabel = false): Promise<void> {
+    console.log(`Selecting dropdown value:`, value);
+
+    // Find dropdown element
+    let trigger: HTMLElement | null = null;
+
+    if (byLabel) {
+      // Find by label text
+      const labels = Array.from(document.querySelectorAll('mat-form-field mat-label'));
+      const label = labels.find(l => l.textContent?.trim() === value || l.textContent?.includes(value));
+      if (label) {
+        const formField = label.closest('mat-form-field');
+        trigger = formField?.querySelector('mat-select') as HTMLElement;
+      }
+    } else {
+      trigger = document.querySelector(selector) as HTMLElement;
+    }
 
     if (!trigger) {
       throw new Error(`Select not found: ${selector}`);
     }
 
+    // Click to open dropdown
     trigger.click();
+    await sleep(500);
 
-    // Wait for options to appear
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Options appear in .cdk-overlay-container (outside form)
+    const options = Array.from(document.querySelectorAll('mat-option'));
 
-    const options = document.querySelectorAll('.mat-option');
-    const option = Array.from(options).find(
-      (opt) => opt.textContent?.trim() === value
-    );
+    // Case-insensitive search
+    const option = options.find(o => {
+      const text = o.textContent?.trim().toLowerCase() || '';
+      return text === value.toLowerCase();
+    });
 
-    if (option) {
-      (option as HTMLElement).click();
-    } else {
+    if (!option) {
+      console.error('Available options:', options.map(o => o.textContent?.trim()));
       throw new Error(`Option not found: ${value}`);
     }
+
+    (option as HTMLElement).click();
+
+    // Wait for Angular stability
+    await sleep(300);
+  }
+
+  // ==========================================
+  // UTILITY: Find Input by mat-label
+  // ==========================================
+  findInputByMatLabel(labelText: string): HTMLInputElement | null {
+    const labels = Array.from(document.querySelectorAll('mat-form-field mat-label'));
+
+    // Exact match first
+    let label = labels.find(l => l.textContent?.trim() === labelText);
+
+    // Fallback to partial match
+    if (!label) {
+      label = labels.find(l => l.textContent?.includes(labelText));
+    }
+
+    if (!label) {
+      return null;
+    }
+
+    const formField = label.closest('mat-form-field');
+
+    // Try to find input
+    let input = formField?.querySelector('input.mat-input-element, input.mat-input');
+
+    // Fallback to any input
+    if (!input) {
+      input = formField?.querySelector('input');
+    }
+
+    return input as HTMLInputElement | null;
+  }
+
+  // ==========================================
+  // UTILITY: Wait for Element
+  // ==========================================
+  waitForElement(
+    selector: string,
+    timeout = 10000,
+    parent: Element | Document = document
+  ): Promise<Element> {
+    return new Promise((resolve, reject) => {
+      const element = parent.querySelector(selector);
+
+      if (element) {
+        resolve(element);
+        return;
+      }
+
+      const observer = new MutationObserver(() => {
+        const element = parent.querySelector(selector);
+        if (element) {
+          observer.disconnect();
+          resolve(element);
+        }
+      });
+
+      observer.observe(parent, {
+        childList: true,
+        subtree: true,
+      });
+
+      setTimeout(() => {
+        observer.disconnect();
+        reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+      }, timeout);
+    });
   }
 
   // ==========================================
   // CUSTOMER SEARCH
   // ==========================================
-  async fillCustomerSearch(data: {
-    address: string;
-    zipCode: string;
-  }): Promise<void> {
-    await this.fillField('input[name="streetNum"]', data.address.split(' ')[0]);
-    await this.fillField('input[name="streetName"]', data.address.split(' ').slice(1).join(' '));
-    await this.fillField('input[name="zip"]', data.zipCode);
+  async fillCustomerSearch(data: CustomerSearchData): Promise<void> {
+    await this.fillField('input[name="streetNum"]', data.address.split(' ')[0], 'Street Number');
+    await this.fillField('input[name="streetName"]', data.address.split(' ').slice(1).join(' '), 'Street Name');
+    await this.fillField('input[name="zip"]', data.zipCode, 'ZIP Code');
   }
 
   // ==========================================
   // CUSTOMER INFO
   // ==========================================
-  async fillCustomerInfo(data: {
-    firstName: string;
-    lastName: string;
-    phone: string;
-    email?: string;
-  }): Promise<void> {
-    await this.fillField('input[name="firstName"]', data.firstName);
-    await this.fillField('input[name="lastName"]', data.lastName);
-    await this.fillField('input[name="phone"]', data.phone);
+  async fillCustomerInfo(data: CustomerInfoData): Promise<void> {
+    await this.fillField('input[name="firstName"]', data.firstName, 'First Name');
+    await this.fillField('input[name="lastName"]', data.lastName, 'Last Name');
+    await this.fillField('input[name="phone"]', data.phone, 'Phone');
 
     if (data.email) {
-      await this.fillField('input[name="email"]', data.email);
+      await this.fillField('input[name="email"]', data.email, 'Email');
     }
   }
 
@@ -81,26 +246,39 @@ export class SCEHelper {
 
     if (nextButton) {
       (nextButton as HTMLElement).click();
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await sleep(1000);
+    } else {
+      throw new Error('Next button not found');
     }
   }
 
   // ==========================================
-  // DOCUMENT UPLOADS
+  // DOCUMENT UPLOADS (Enhanced)
   // ==========================================
-  async uploadDocuments(documents: Array<{ url: string; name: string; type: string }>): Promise<void> {
+  async uploadDocuments(documents: DocumentData[]): Promise<void> {
+    console.log(`Uploading ${documents.length} documents`);
+
     for (const doc of documents) {
-      // Fetch file as blob
-      const response = await fetch(doc.url);
-      const blob = await response.blob();
+      try {
+        // Fetch file as blob
+        const response = await fetch(doc.url);
 
-      // Convert to File
-      const file = new File([blob], doc.name, { type: doc.type });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ${doc.url}: ${response.status}`);
+        }
 
-      // Find file input
-      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+        const blob = await response.blob();
 
-      if (input) {
+        // Convert to File
+        const file = new File([blob], doc.name, { type: doc.type });
+
+        // Find file input (try multiple selectors)
+        let input = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+        if (!input) {
+          throw new Error('File input not found');
+        }
+
         // Create DataTransfer
         const dataTransfer = new DataTransfer();
         dataTransfer.items.add(file);
@@ -109,7 +287,12 @@ export class SCEHelper {
         // Trigger change event
         input.dispatchEvent(new Event('change', { bubbles: true }));
 
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        console.log(`Uploaded: ${doc.name}`);
+
+        await sleep(500);
+      } catch (error) {
+        console.error(`Failed to upload ${doc.name}:`, error);
+        throw error;
       }
     }
   }
