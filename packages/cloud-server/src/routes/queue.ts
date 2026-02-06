@@ -115,3 +115,31 @@ queueRoutes.post(
     res.json({ success: true, data: property });
   })
 );
+
+// GET /api/queue/status - Get queue status counts
+queueRoutes.get(
+  '/status',
+  asyncHandler(async (req, res) => {
+    const [pendingScrape, readyForField, visited, readyForSubmission, complete, failed] =
+      await Promise.all([
+        prisma.property.count({ where: { status: 'PENDING_SCRAPE' } }),
+        prisma.property.count({ where: { status: 'READY_FOR_FIELD' } }),
+        prisma.property.count({ where: { status: 'VISITED' } }),
+        prisma.property.count({ where: { status: 'READY_FOR_SUBMISSION' } }),
+        prisma.property.count({ where: { status: 'COMPLETE' } }),
+        prisma.property.count({ where: { status: 'FAILED' } }),
+      ]);
+
+    res.json({
+      success: true,
+      data: {
+        pendingScrape,
+        readyForField,
+        visited,
+        readyForSubmission,
+        complete,
+        failed,
+      },
+    });
+  })
+);
