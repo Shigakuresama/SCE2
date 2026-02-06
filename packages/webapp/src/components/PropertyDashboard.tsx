@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PropertyStatus } from '../types';
 import { PropertyList } from './PropertyList';
 import { QueueStatus } from './QueueStatus';
+import { AddressInput } from './AddressInput';
 import { useApp } from '../contexts/AppContext';
 
 interface PropertyDashboardProps {
@@ -11,9 +12,13 @@ interface PropertyDashboardProps {
 export const PropertyDashboard: React.FC<PropertyDashboardProps> = ({
   onQueueSuccess: _onQueueSuccess,
 }) => {
-  const { properties, queueStatus, loading, error, fetchProperties, clearError } =
+  const { properties, loading, error, fetchProperties, clearError } =
     useApp();
   const [filter, setFilter] = useState<PropertyStatus | 'ALL'>('ALL');
+
+  const handleQueueSuccess = () => {
+    fetchProperties();
+  };
 
   const filteredProperties = properties.filter((property) => {
     if (filter === 'ALL') return true;
@@ -130,6 +135,9 @@ export const PropertyDashboard: React.FC<PropertyDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Address Input */}
+      <AddressInput onSuccess={handleQueueSuccess} />
 
       {/* Queue Status */}
       <QueueStatus />
