@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { PropertyLoader } from './components/PropertyLoader';
+import { PropertyInfo } from './components/PropertyInfo';
 import './index.css';
 
 function App() {
@@ -49,17 +51,26 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="bg-blue-600 text-white p-4 shadow-md">
-        <h1 className="text-xl font-bold">SCE2 Mobile</h1>
-        <p className="text-blue-100 text-sm">Property ID: {propertyId}</p>
-      </div>
+      <PropertyLoader propertyId={propertyId}>
+        {(property) => (
+          <>
+            <div className="bg-blue-600 text-white p-4 shadow-md">
+              <h1 className="text-xl font-bold">SCE2 Mobile</h1>
+              <p className="text-blue-100 text-sm">
+                Property #{property.id} - {property.status.replace(/_/g, ' ')}
+              </p>
+            </div>
 
-      <div className="p-4">
-        <div className="bg-white rounded-lg shadow p-6 text-center">
-          <p className="text-gray-600">Loading property data...</p>
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mt-4"></div>
-        </div>
-      </div>
+            <div className="p-4">
+              <PropertyInfo property={property} />
+
+              <div className="bg-white rounded-lg shadow-md p-6 text-center">
+                <p className="text-gray-600">Field form coming soon...</p>
+              </div>
+            </div>
+          </>
+        )}
+      </PropertyLoader>
     </div>
   );
 }
