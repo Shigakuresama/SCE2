@@ -63,15 +63,18 @@ class SCE2API {
       const data: ApiResponse<T> = await response.json();
 
       if (!response.ok) {
-        throw new APIError(
-          data.error || `HTTP ${response.status}: ${response.statusText}`,
-          response.status,
-          data
-        );
+        // Extract error message from object or string
+        const errorMessage = typeof data.error === 'string'
+          ? data.error
+          : data.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+        throw new APIError(errorMessage, response.status, data);
       }
 
       if (!data.success) {
-        throw new APIError(data.error || 'Request failed');
+        const errorMessage = typeof data.error === 'string'
+          ? data.error
+          : data.error?.message || 'Request failed';
+        throw new APIError(errorMessage, undefined, data);
       }
 
       return data.data;
@@ -146,7 +149,13 @@ class SCE2API {
   /**
    * Queue multiple addresses for scraping
    */
-  async queueAddressesForScraping(addresses: string[]): Promise<void> {
+  async queueAddressesForScraping(addresses: AddressInput[]): Promise<void> {
+    if (!Array.isArray(addresses) || addresses.length === 0) {
+      throw new Error('addresses must be a non-empty array');
+    }
+    if (addresses.length > 100) {
+      throw new Error('Cannot queue more than 100 addresses at once');
+    }
     return this.request<void>('/queue/addresses', {
       method: 'POST',
       body: JSON.stringify({ addresses }),

@@ -151,47 +151,87 @@ queueRoutes.post(
   asyncHandler(async (req, res) => {
     const { addresses } = req.body;
 
+    // Validate input
     if (!Array.isArray(addresses) || addresses.length === 0) {
       throw new ValidationError('addresses must be a non-empty array');
     }
 
+    if (addresses.length > 100) {
+      throw new ValidationError('Cannot queue more than 100 addresses at once');
+    }
+
+    // Define AddressInput type for type safety
+    interface AddressInput {
+      addressFull: string;
+      streetNumber: string;
+      streetName: string;
+      zipCode: string;
+      city?: string | null;
+      state?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+    }
+
     // Validate each address has required fields
-    for (const addr of addresses) {
+    for (const addr of addresses as AddressInput[]) {
       if (!addr.addressFull || !addr.streetNumber || !addr.streetName || !addr.zipCode) {
         throw new ValidationError(
           'Each address must have addressFull, streetNumber, streetName, zipCode'
         );
       }
+
+      // Validate string lengths to prevent database overflow
+      if (addr.addressFull.length > 255) {
+        throw new ValidationError('addressFull exceeds 255 characters');
+      }
+      if (addr.zipCode.length > 10) {
+        throw new ValidationError('zipCode exceeds 10 characters');
+      }
     }
 
-    // Bulk create properties with PENDING_SCRAPE status
-    const properties = await prisma.property.createMany({
-      data: addresses.map((addr: any) => ({
-        addressFull: addr.addressFull,
-        streetNumber: addr.streetNumber,
-        streetName: addr.streetName,
-        zipCode: addr.zipCode,
-        city: addr.city,
-        state: addr.state,
-        latitude: addr.latitude,
-        longitude: addr.longitude,
-        status: 'PENDING_SCRAPE',
-      })),
-    });
+    // Use transaction for atomicity and duplicate detection
+    const result = await prisma.$transaction(async (tx) => {
+      // Check for duplicates
+      const existing = await tx.property.findMany({
+        where: {
+          addressFull: { in: (addresses as AddressInput[]).map((a) => a.addressFull) },
+        },
+        select: { addressFull: true },
+      });
 
-    // Fetch created properties to return them
-    const createdProperties = await prisma.property.findMany({
-      where: {
-        addressFull: { in: addresses.map((a: any) => a.addressFull) },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: addresses.length,
+      if (existing.length > 0) {
+        const duplicates = existing.map((p) => p.addressFull).join(', ');
+        throw new ValidationError(`Addresses already exist: ${duplicates}`);
+      }
+
+      // Create properties
+      await tx.property.createMany({
+        data: (addresses as AddressInput[]).map((addr) => ({
+          addressFull: addr.addressFull,
+          streetNumber: addr.streetNumber,
+          streetName: addr.streetName,
+          zipCode: addr.zipCode,
+          city: addr.city,
+          state: addr.state,
+          latitude: addr.latitude,
+          longitude: addr.longitude,
+          status: 'PENDING_SCRAPE',
+        })),
+      });
+
+      // Fetch created properties within same transaction
+      return tx.property.findMany({
+        where: {
+          addressFull: { in: (addresses as AddressInput[]).map((a) => a.addressFull) },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
     });
 
     res.status(201).json({
       success: true,
-      data: createdProperties,
-      count: properties.count,
+      data: result,
+      count: result.length,
     });
   })
 );

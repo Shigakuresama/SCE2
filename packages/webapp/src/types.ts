@@ -10,6 +10,17 @@ export enum PropertyStatus {
   FAILED = 'FAILED',
 }
 
+export interface AddressInput {
+  addressFull: string;
+  streetNumber: string;
+  streetName: string;
+  zipCode: string;
+  city?: string | null;
+  state?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
 export interface Property {
   id: number;
   createdAt: Date;

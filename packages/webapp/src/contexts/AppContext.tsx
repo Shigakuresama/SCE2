@@ -6,12 +6,15 @@ interface AppContextType {
   properties: Property[];
   queueStatus: QueueStatus | null;
   loading: boolean;
-  error: string | null;
+  errors: {
+    properties: string | null;
+    queueStatus: string | null;
+  };
   selectedProperties: Property[];
   setSelectedProperties: React.Dispatch<React.SetStateAction<Property[]>>;
   fetchProperties: () => Promise<void>;
   refreshQueueStatus: () => Promise<void>;
-  clearError: () => void;
+  clearError: (key: keyof AppContextType['errors']) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -20,17 +23,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [properties, setProperties] = useState<Property[]>([]);
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState({
+    properties: null,
+    queueStatus: null,
+  });
   const [selectedProperties, setSelectedProperties] = useState<Property[]>([]);
 
   const fetchProperties = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
+      setErrors((prev) => ({ ...prev, properties: null }));
       const data = await api.getProperties();
       setProperties(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch properties');
+      setErrors((prev) => ({
+        ...prev,
+        properties: err instanceof Error ? err.message : 'Failed to fetch properties',
+      }));
     } finally {
       setLoading(false);
     }
@@ -38,16 +47,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshQueueStatus = useCallback(async () => {
     try {
-      setError(null);
+      setErrors((prev) => ({ ...prev, queueStatus: null }));
       const status = await api.getQueueStatus();
       setQueueStatus(status);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch queue status');
+      setErrors((prev) => ({
+        ...prev,
+        queueStatus: err instanceof Error ? err.message : 'Failed to fetch queue status',
+      }));
     }
   }, []);
 
-  const clearError = useCallback(() => {
-    setError(null);
+  const clearError = useCallback((key: keyof AppContextType['errors']) => {
+    setErrors((prev) => ({ ...prev, [key]: null }));
   }, []);
 
   // Auto-refresh queue status every 5 seconds
@@ -61,7 +73,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     properties,
     queueStatus,
     loading,
-    error,
+    errors,
     selectedProperties,
     setSelectedProperties,
     fetchProperties,
