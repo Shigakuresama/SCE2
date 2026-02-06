@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCE2 Extension Options</title>
+  <style>
+    body {
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    h1 {
+      color: #333;
+    }
+
+    .section {
+      margin: 24px 0;
+      padding: 16px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+
+    label {
+      display: block;
+      margin: 12px 0 4px 0;
+      font-weight: 500;
+      color: #555;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #1976d2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 16px;
+    }
+
+    button:hover {
+      background: #1565c0;
+    }
+
+    .note {
+      font-size: 12px;
+      color: #666;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>SCE2 Extension Configuration</h1>
+
+  <div class="section">
+    <h2>API Settings</h2>
+
+    <label for="api-url">API Base URL</label>
+    <input type="text" id="api-url" placeholder="http://localhost:3333" />
+    <div class="note">URL of the SCE2 cloud server (e.g., http://localhost:3333 or https://your-server.com)</div>
+
+    <label for="poll-interval">Poll Interval (milliseconds)</label>
+    <input type="number" id="poll-interval" placeholder="5000" min="1000" max="60000" />
+    <div class="note">How often to check for new jobs (default: 5000ms = 5 seconds)</div>
+
+    <label for="timeout">Request Timeout (milliseconds)</label>
+    <input type="number" id="timeout" placeholder="30000" min="5000" max="120000" />
+    <div class="note">Maximum time to wait for server responses (default: 30000ms = 30 seconds)</div>
+  </div>
+
+  <div class="section">
+    <h2>Processing Settings</h2>
+
+    <label for="max-concurrent">Max Concurrent Jobs</label>
+    <input type="number" id="max-concurrent" placeholder="3" min="1" max="10" />
+    <div class="note">Maximum number of tabs to process simultaneously (default: 3)</div>
+
+    <label for="auto-start">Auto-start Processing</label>
+    <select id="auto-start">
+      <option value="true">Yes</option>
+      <option value="false">No</option>
+    </select>
+    <div class="note">Automatically start processing when extension is loaded</div>
+  </div>
+
+  <div class="section">
+    <h2>Debug Mode</h2>
+
+    <label>
+      <input type="checkbox" id="debug-mode" />
+      Enable debug logging
+    </label>
+    <div class="note">Show detailed logs in console for troubleshooting</div>
+  </div>
+
+  <button id="save-btn">Save Configuration</button>
+  <div id="status" style="margin-top: 12px;"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>

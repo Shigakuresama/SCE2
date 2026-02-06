@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsc --watch",
     "build": "npm run build:copy && npm run build:compile",
-    "build:copy": "rsync -av --exclude='*.ts' --exclude='*.map' src/ dist/ && rsync -av manifest.json dist/",
+    "build:copy": "rsync -av --exclude='*.ts' --exclude='*.map' src/ dist/ && rsync -av manifest.json dist/ && rsync -av *.html dist/ 2>/dev/null || true",
     "build:compile": "tsc",
     "package": "npm run build && cd dist && zip -r ../sce2-extension.zip .",
     "clean": "rm -rf dist",
