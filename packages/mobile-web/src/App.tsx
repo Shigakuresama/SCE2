@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import { PropertyLoader } from './components/PropertyLoader';
 import { PropertyInfo } from './components/PropertyInfo';
+import { FieldDataForm } from './components/FieldDataForm';
+import type { MobilePropertyData } from './types';
 import './index.css';
 
 function App() {
   const [propertyId, setPropertyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentProperty, setCurrentProperty] =
+    useState<MobilePropertyData | null>(null);
 
   useEffect(() => {
     // Parse propertyId from URL query parameter
@@ -25,6 +29,10 @@ function App() {
 
     setPropertyId(parsedId);
   }, []);
+
+  const handlePropertyUpdate = (updatedProperty: MobilePropertyData) => {
+    setCurrentProperty(updatedProperty);
+  };
 
   if (error) {
     return (
@@ -52,24 +60,36 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50">
       <PropertyLoader propertyId={propertyId}>
-        {(property) => (
-          <>
-            <div className="bg-blue-600 text-white p-4 shadow-md">
-              <h1 className="text-xl font-bold">SCE2 Mobile</h1>
-              <p className="text-blue-100 text-sm">
-                Property #{property.id} - {property.status.replace(/_/g, ' ')}
-              </p>
-            </div>
+        {(property) => {
+          // Use updated property if available, otherwise use original
+          const displayProperty = currentProperty || property;
 
-            <div className="p-4">
-              <PropertyInfo property={property} />
-
-              <div className="bg-white rounded-lg shadow-md p-6 text-center">
-                <p className="text-gray-600">Field form coming soon...</p>
+          return (
+            <>
+              <div className="bg-blue-600 text-white p-4 shadow-md">
+                <h1 className="text-xl font-bold">SCE2 Mobile</h1>
+                <p className="text-blue-100 text-sm">
+                  Property #{displayProperty.id} -{' '}
+                  {displayProperty.status.replace(/_/g, ' ')}
+                </p>
               </div>
-            </div>
-          </>
-        )}
+
+              <div className="p-4">
+                <PropertyInfo property={displayProperty} />
+                <FieldDataForm
+                  property={displayProperty}
+                  onSuccess={handlePropertyUpdate}
+                />
+
+                <div className="bg-white rounded-lg shadow-md p-6 text-center">
+                  <p className="text-gray-600">
+                    Photo capture and signature coming soon...
+                  </p>
+                </div>
+              </div>
+            </>
+          );
+        }}
       </PropertyLoader>
     </div>
   );
