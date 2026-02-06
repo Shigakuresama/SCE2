@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PropertyStatus } from '../types';
 import { PropertyList } from './PropertyList';
+import { QueueStatus } from './QueueStatus';
 import { useApp } from '../contexts/AppContext';
 
 interface PropertyDashboardProps {
@@ -131,29 +132,7 @@ export const PropertyDashboard: React.FC<PropertyDashboardProps> = ({
       </div>
 
       {/* Queue Status */}
-      {queueStatus && (
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-          <h3 className="text-sm font-medium text-blue-900 mb-2">
-            Queue Status
-          </h3>
-          <div className="grid grid-cols-3 gap-4 text-sm">
-            <div>
-              <span className="text-blue-700">Scrape Queue:</span>{' '}
-              <span className="font-semibold">{queueStatus.scrapeQueue}</span>
-            </div>
-            <div>
-              <span className="text-blue-700">Submit Queue:</span>{' '}
-              <span className="font-semibold">{queueStatus.submitQueue}</span>
-            </div>
-            <div>
-              <span className="text-blue-700">Processing:</span>{' '}
-              <span className="font-semibold">
-                {queueStatus.processing ? 'Yes' : 'No'}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+      <QueueStatus />
 
       {/* Filter */}
       <div className="flex items-center space-x-4">
