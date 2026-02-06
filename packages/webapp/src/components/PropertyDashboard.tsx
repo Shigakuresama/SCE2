@@ -13,7 +13,7 @@ interface PropertyDashboardProps {
 export const PropertyDashboard: React.FC<PropertyDashboardProps> = ({
   onQueueSuccess: _onQueueSuccess,
 }) => {
-  const { properties, loading, error, fetchProperties, clearError, selectedProperties } =
+  const { properties, loading, errors, fetchProperties, clearError, selectedProperties } =
     useApp();
   const [filter, setFilter] = useState<PropertyStatus | 'ALL'>('ALL');
 
@@ -27,8 +27,12 @@ export const PropertyDashboard: React.FC<PropertyDashboardProps> = ({
   });
 
   const handleRefresh = () => {
-    clearError();
+    clearError('properties');
     fetchProperties();
+  };
+
+  const handleClearError = () => {
+    clearError('properties');
   };
 
   const stats = {
@@ -60,7 +64,7 @@ export const PropertyDashboard: React.FC<PropertyDashboardProps> = ({
       </div>
 
       {/* Error Message */}
-      {error && (
+      {errors.properties && (
         <div className="bg-red-50 border border-red-200 rounded-md p-4">
           <div className="flex">
             <div className="flex-shrink-0">
@@ -77,11 +81,11 @@ export const PropertyDashboard: React.FC<PropertyDashboardProps> = ({
               </svg>
             </div>
             <div className="ml-3">
-              <p className="text-sm text-red-800">{error}</p>
+              <p className="text-sm text-red-800">{errors.properties}</p>
             </div>
             <div className="ml-auto pl-3">
               <button
-                onClick={clearError}
+                onClick={handleClearError}
                 className="text-red-400 hover:text-red-600"
               >
                 <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

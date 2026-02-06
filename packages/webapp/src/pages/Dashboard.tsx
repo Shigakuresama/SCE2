@@ -1,18 +1,34 @@
 import React, { useState } from 'react';
-import { PropertyStatus } from '../types';
+import { PropertyStatus, AddressInput } from '../types';
 import { PropertyList } from '../components/PropertyList';
 import { QueueStatus } from '../components/QueueStatus';
-import { AddressInput } from '../components/AddressInput';
+import { AddressInput as AddressInputComponent } from '../components/AddressInput';
 import { PDFGenerator } from '../components/PDFGenerator';
+import { MapLayout } from '../components/MapLayout';
 import { useApp } from '../contexts/AppContext';
+import { api } from '../lib/api';
 
 export const Dashboard: React.FC = () => {
-  const { properties, loading, error, fetchProperties, clearError, selectedProperties } =
+  const { properties, loading, errors, fetchProperties, clearError, selectedProperties } =
     useApp();
   const [filter, setFilter] = useState<PropertyStatus | 'ALL'>('ALL');
+  const [inputMode, setInputMode] = useState<'text' | 'map'>('text');
 
   const handleQueueSuccess = () => {
     fetchProperties();
+  };
+
+  const handleAddressesFromMap = async (addresses: AddressInput[]) => {
+    try {
+      await api.queueAddressesForScraping(addresses);
+      fetchProperties();
+    } catch (err) {
+      console.error('Failed to queue addresses from map:', err);
+    }
+  };
+
+  const handleClearError = () => {
+    clearError('properties');
   };
 
   const filteredProperties = properties.filter((property) => {
@@ -21,7 +37,7 @@ export const Dashboard: React.FC = () => {
   });
 
   const handleRefresh = () => {
-    clearError();
+    handleClearError();
     fetchProperties();
   };
 
@@ -45,16 +61,42 @@ export const Dashboard: React.FC = () => {
             Overview of your SCE rebate operations
           </p>
         </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleRefresh}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Input Mode Toggle */}
+      <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-lg">
         <button
-          onClick={handleRefresh}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          onClick={() => setInputMode('text')}
+          className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            inputMode === 'text'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
         >
-          Refresh
+          📝 Text Input
+        </button>
+        <button
+          onClick={() => setInputMode('map')}
+          className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            inputMode === 'map'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
+        >
+          🗺️ Map Layout
         </button>
       </div>
 
       {/* Error Message */}
-      {error && (
+      {errors.properties && (
         <div className="bg-red-50 border border-red-200 rounded-md p-4">
           <div className="flex">
             <div className="flex-shrink-0">
@@ -71,11 +113,11 @@ export const Dashboard: React.FC = () => {
               </svg>
             </div>
             <div className="ml-3">
-              <p className="text-sm text-red-800">{error}</p>
+              <p className="text-sm text-red-800">{errors.properties}</p>
             </div>
             <div className="ml-auto pl-3">
               <button
-                onClick={clearError}
+                onClick={handleClearError}
                 className="text-red-400 hover:text-red-600"
               >
                 <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -132,7 +174,14 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {/* Address Input */}
-      <AddressInput onSuccess={handleQueueSuccess} />
+      {inputMode === 'text' ? (
+        <AddressInputComponent onSuccess={handleQueueSuccess} />
+      ) : (
+        <MapLayout
+          onAddressesSelected={handleAddressesFromMap}
+          existingProperties={properties}
+        />
+      )}
 
       {/* PDF Generator */}
       <PDFGenerator

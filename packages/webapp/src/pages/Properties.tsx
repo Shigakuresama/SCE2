@@ -18,7 +18,7 @@ export const Properties: React.FC = () => {
   });
 
   const handleRefresh = () => {
-    clearError();
+    clearError('properties');
     fetchProperties();
   };
 

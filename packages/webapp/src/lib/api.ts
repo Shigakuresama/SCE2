@@ -7,6 +7,7 @@ import type {
   Route,
   QueueStatus,
   ApiResponse,
+  AddressInput,
 } from '../types';
 import { config, getCloudUrl } from './config';
 
@@ -66,14 +67,18 @@ class SCE2API {
         // Extract error message from object or string
         const errorMessage = typeof data.error === 'string'
           ? data.error
-          : data.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+          : (typeof data.error === 'object' && data.error && 'message' in data.error)
+            ? (data.error as { message: string }).message
+            : `HTTP ${response.status}: ${response.statusText}`;
         throw new APIError(errorMessage, response.status, data);
       }
 
       if (!data.success) {
         const errorMessage = typeof data.error === 'string'
           ? data.error
-          : data.error?.message || 'Request failed';
+          : (typeof data.error === 'object' && data.error && 'message' in data.error)
+            ? (data.error as { message: string }).message
+            : 'Request failed';
         throw new APIError(errorMessage, undefined, data);
       }
 

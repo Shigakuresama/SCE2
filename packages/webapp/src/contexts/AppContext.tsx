@@ -23,7 +23,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [properties, setProperties] = useState<Property[]>([]);
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState({
+  const [errors, setErrors] = useState<{
+    properties: string | null;
+    queueStatus: string | null;
+  }>({
     properties: null,
     queueStatus: null,
   });
