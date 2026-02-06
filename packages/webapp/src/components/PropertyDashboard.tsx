@@ -3,6 +3,7 @@ import { PropertyStatus } from '../types';
 import { PropertyList } from './PropertyList';
 import { QueueStatus } from './QueueStatus';
 import { AddressInput } from './AddressInput';
+import { PDFGenerator } from './PDFGenerator';
 import { useApp } from '../contexts/AppContext';
 
 interface PropertyDashboardProps {
@@ -12,7 +13,7 @@ interface PropertyDashboardProps {
 export const PropertyDashboard: React.FC<PropertyDashboardProps> = ({
   onQueueSuccess: _onQueueSuccess,
 }) => {
-  const { properties, loading, error, fetchProperties, clearError } =
+  const { properties, loading, error, fetchProperties, clearError, selectedProperties } =
     useApp();
   const [filter, setFilter] = useState<PropertyStatus | 'ALL'>('ALL');
 
@@ -138,6 +139,12 @@ export const PropertyDashboard: React.FC<PropertyDashboardProps> = ({
 
       {/* Address Input */}
       <AddressInput onSuccess={handleQueueSuccess} />
+
+      {/* PDF Generator */}
+      <PDFGenerator
+        properties={properties}
+        selectedProperties={selectedProperties}
+      />
 
       {/* Queue Status */}
       <QueueStatus />

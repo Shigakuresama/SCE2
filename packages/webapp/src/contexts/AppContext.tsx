@@ -7,6 +7,8 @@ interface AppContextType {
   queueStatus: QueueStatus | null;
   loading: boolean;
   error: string | null;
+  selectedProperties: Property[];
+  setSelectedProperties: React.Dispatch<React.SetStateAction<Property[]>>;
   fetchProperties: () => Promise<void>;
   refreshQueueStatus: () => Promise<void>;
   clearError: () => void;
@@ -19,6 +21,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedProperties, setSelectedProperties] = useState<Property[]>([]);
 
   const fetchProperties = useCallback(async () => {
     try {
@@ -59,6 +62,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     queueStatus,
     loading,
     error,
+    selectedProperties,
+    setSelectedProperties,
     fetchProperties,
     refreshQueueStatus,
     clearError,
