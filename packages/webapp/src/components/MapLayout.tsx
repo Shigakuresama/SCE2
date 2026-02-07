@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { MapContainer, TileLayer, FeatureGroup, Marker, Popup } from 'react-leaflet';
 import { EditControl } from 'react-leaflet-draw';
 import L from 'leaflet';
@@ -58,6 +58,9 @@ const houseIcon = L.icon({
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
 });
+
+// Constants for API and configuration
+const OVERPASS_TIMEOUT = 25000; // 25 seconds for Overpass API
 
 interface Bounds {
   north: number;
@@ -135,8 +138,12 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
   const [hasSelectedArea, setHasSelectedArea] = useState(false);
   const [currentBounds, setCurrentBounds] = useState<Bounds | null>(null);
   const [addressCount, setAddressCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const featureGroupRef = useRef<L.FeatureGroup>(null);
   const mapRef = useRef<L.Map | null>(null);
+
+  // Track markers for cleanup
+  const markersRef = useRef<L.Marker[]>([]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -146,6 +153,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
   const fetchAddressesInBounds = useCallback(
     async (bounds: Bounds) => {
       setLoading(true);
+      setError(null);
       try {
         const bbox = `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`;
         const query = `
@@ -156,9 +164,19 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
           out body;
         `;
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT);
+
         const response = await fetch(
-          `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`
+          `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`,
+          { signal: controller.signal }
         );
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Overpass API error: ${response.status} ${response.statusText}`);
+        }
+
         const data = await response.json();
 
         if (data.elements && data.elements.length > 0) {
@@ -169,7 +187,12 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
               const city = el.tags['addr:city'];
               const postcode = el.tags['addr:postcode'];
 
-              if (!street || !housenumber || !postcode) {
+              if (!street || !housenumber) {
+                return null;
+              }
+
+              // Skip if no postcode (invalid address)
+              if (!postcode) {
                 return null;
               }
 
@@ -192,7 +215,9 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
           setAddressCount(0);
         }
       } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
         console.error('Failed to fetch addresses:', error);
+        setError(`Failed to load addresses: ${message}`);
         setAddressCount(0);
       } finally {
         setLoading(false);
@@ -242,6 +267,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
 
     setIsSearching(true);
     setSearchResult(null);
+    setError(null);
 
     try {
       const result = await searchAddress(trimmedQuery);
@@ -261,7 +287,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
         setSearchResult(address);
 
         // Queue the found address
-        onAddressesSelected([address]);
+        await onAddressesSelected([address]);
         setAddressCount(1);
         setHasSelectedArea(true);
 
@@ -269,9 +295,13 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
         if (mapRef.current) {
           mapRef.current.setView([result.lat, result.lon], 16);
         }
+      } else {
+        setError('Address not found. Please check the address and try again.');
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
       console.error('Search failed:', error);
+      setError(`Search failed: ${message}`);
     } finally {
       setIsSearching(false);
     }
@@ -282,6 +312,22 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
       handleSearch();
     }
   };
+
+  // Cleanup markers on unmount
+  useEffect(() => {
+    return () => {
+      markersRef.current.forEach(marker => marker.remove());
+      markersRef.current = [];
+    };
+  }, []);
+
+  // Filter properties before rendering (performance optimization)
+  const propertiesWithCoords = existingProperties.filter(
+    prop => prop.latitude && prop.longitude
+  );
+
+  // Get origin URL for links (use window.location for proper origin)
+  const originUrl = window.location.origin || 'http://localhost:5173';
 
   return (
     <div className="space-y-4">
@@ -324,6 +370,21 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
             {isSearching ? '🔍 Searching...' : '🔍 Search'}
           </button>
         </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="mt-3 bg-red-50 border border-red-200 rounded p-3">
+            <div className="text-sm text-red-800">
+              <span className="font-medium">Error:</span> {error}
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="mt-2 px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {loading && (
           <div className="mt-3 flex items-center">
@@ -396,9 +457,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
         </FeatureGroup>
 
         {/* Show existing properties as markers */}
-        {existingProperties.map((prop) => {
-          if (!prop.latitude || !prop.longitude) return null;
-
+        {propertiesWithCoords.map((prop) => {
           const isApt = isApartment(prop);
           const icon = isApt ? apartmentIcon : houseIcon;
 
@@ -423,7 +482,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
                   )}
                   <br />
                   <a
-                    href={`http://localhost:5173/properties/${prop.id}`}
+                    href={`${originUrl}/properties/${prop.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:underline"

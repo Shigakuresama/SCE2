@@ -246,7 +246,21 @@ export async function generateRouteSheet(
           qrYPosition + qrSize + 4
         );
       } catch (error) {
+        // Log error and show placeholder in PDF
         console.error('Failed to generate QR code:', error);
+
+        // Add visible placeholder in PDF
+        const qrSize = 30;
+        const xPosition = pageWidth - margin - qrSize;
+        const qrYPosition = yPosition - 20;
+
+        doc.setFontSize(6);
+        doc.setTextColor(255, 0, 0);
+        doc.text('QR Unavailable', xPosition + 2, qrYPosition + 10);
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text('Check connection', xPosition + 2, qrYPosition + 16);
+        doc.setTextColor(0);
       }
     }
 

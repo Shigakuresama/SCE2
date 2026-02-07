@@ -5,24 +5,16 @@
  * Returns standardized AddressInput objects for use in SCE2.
  */
 
+import type { AddressInput } from '../types';
+
 const OVERPASS_API_URL = 'https://overpass-api.de/api/interpreter';
 
+// Re-export Bounds for convenience
 export interface Bounds {
   south: number;
   west: number;
   north: number;
   east: number;
-}
-
-export interface AddressInput {
-  addressFull: string;
-  streetNumber: string;
-  streetName: string;
-  city: string | null;
-  state: string;
-  zipCode: string;
-  latitude?: number;
-  longitude?: number;
 }
 
 interface AddressFromOverpass {
@@ -38,31 +30,33 @@ interface AddressFromOverpass {
 }
 
 /**
- * Normalize address data to ensure all required fields are present
+ * Normalize address data to ensure all required fields are present.
+ * Returns null if required fields (street, housenumber, postcode) are missing.
  */
-function normalizeAddress(el: AddressFromOverpass, defaultZip?: string): AddressInput | null {
+function normalizeAddress(el: AddressFromOverpass): AddressInput | null {
   const street = el.tags['addr:street'];
   const housenumber = el.tags['addr:housenumber'];
   const city = el.tags['addr:city'];
-  const postcode = el.tags['addr:postcode'] || defaultZip;
+  const postcode = el.tags['addr:postcode'];
 
-  // Must have street and house number at minimum
-  if (!street || !housenumber) {
-    console.warn('Skipping address without street or housenumber:', el.tags);
+  // Must have street, house number, and postcode at minimum
+  if (!street || !housenumber || !postcode) {
+    console.warn('[Overpass] Skipping address without required fields:', {
+      hasStreet: !!street,
+      hasHouseNumber: !!housenumber,
+      hasPostcode: !!postcode,
+      tags: el.tags
+    });
     return null;
   }
 
-  // Try to infer postcode from coordinates if missing
-  // For now, we'll use a placeholder if absolutely necessary
-  const finalPostcode = postcode || '00000';
-
   return {
-    addressFull: `${housenumber} ${street}, ${city || 'Unknown City'}, ${finalPostcode}`,
+    addressFull: `${housenumber} ${street}, ${city || 'Unknown City'}, ${postcode}`,
     streetNumber: housenumber,
     streetName: street,
+    zipCode: postcode,
     city: city || null,
     state: 'CA', // Default to California (Orange County area)
-    zipCode: finalPostcode,
     latitude: el.lat,
     longitude: el.lon,
   };
