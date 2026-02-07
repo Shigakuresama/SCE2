@@ -1,0 +1,16 @@
+services:
+  # Webapp (Static React App)
+  - type: web
+    name: sce2-webapp
+    runtime: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./packages/webapp/dist
+    envVars:
+      - key: VITE_CLOUD_BASE_URL
+        value: https://sce2-cloud-server.onrender.com
+      - key: VITE_MOBILE_BASE_URL
+        value: https://sce2-mobile.onrender.com
+    routes:
+      - type: rewrite
+        src: /.*
+        dest: /index.html

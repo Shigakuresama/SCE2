@@ -11,6 +11,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    host: true, // Allow external connections
+    strictPort: true,
+    allowedHosts: ['.trycloudflare.com', '.loca.lt', 'localhost'], // Allow cloudflare tunnels
     proxy: {
       '/api': {
         target: 'http://localhost:3333',

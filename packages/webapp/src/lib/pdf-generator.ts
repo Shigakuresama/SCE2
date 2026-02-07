@@ -4,7 +4,7 @@
 import jsPDF from 'jspdf';
 import QRCode from 'qrcode';
 import type { Property } from '../types';
-import { getCloudUrl } from './config';
+import { getMobileUrl } from './config';
 import { optimizeRoute, groupIntoPages } from './route-optimizer';
 
 /**
@@ -280,7 +280,8 @@ export async function generateRouteSheet(
         // QR Code for mobile access (right side of cell)
         if (includeQR) {
           try {
-            const mobileUrl = getCloudUrl(`/mobile/${property.id}`);
+            // Use mobile URL with query parameter for property ID
+            const mobileUrl = getMobileUrl(`/?propertyId=${property.id}`);
             const qrDataUrl = await QRCode.toDataURL(mobileUrl, {
               width: 80,
               margin: 1,

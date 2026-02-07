@@ -1,0 +1,83 @@
+# SCE2 Render.com Deployment Configuration
+# https://render.com/docs/yaml-spec
+
+services:
+  # ===========================================
+  # Cloud Server (API) - PAID Service
+  # ===========================================
+  - type: web
+    name: sce2-cloud-server
+    env: node
+    region: oregon
+    plan: free # Free tier has spin-down
+    buildCommand: cd packages/cloud-server && npm install && npm run build
+    startCommand: cd packages/cloud-server && npm run db:push && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3333
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sce2-db
+          property: connectionString
+      - key: ALLOWED_ORIGINS
+        value: https://sce2-webapp.onrender.com,https://sce2-mobile.onrender.com
+      - key: BASE_URL
+        value: https://sce2-cloud-server.onrender.com
+      - key: SCRAPER_API_KEY
+        sync: false # Set this manually in Render dashboard
+      - key: MAX_FILE_SIZE
+        value: 10485760
+      - key: UPLOAD_DIR
+        value: ./uploads
+
+  # ===========================================
+  # Webapp (Desktop) - FREE Static Site
+  # ===========================================
+  - type: web
+    name: sce2-webapp
+    env: static
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build --workspace=packages/webapp
+    staticPublishPath: ./packages/webapp/dist
+    envVars:
+      - key: VITE_CLOUD_BASE_URL
+        value: https://sce2-cloud-server.onrender.com
+      - key: VITE_MOBILE_BASE_URL
+        value: https://sce2-mobile.onrender.com
+    routes:
+      - type: rewrite
+        src: /.*
+        status: 200
+        dest: /index.html
+
+  # ===========================================
+  # Mobile Web - FREE Static Site
+  # ===========================================
+  - type: web
+    name: sce2-mobile
+    env: static
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build --workspace=packages/mobile-web
+    staticPublishPath: ./packages/mobile-web/dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://sce2-cloud-server.onrender.com
+    routes:
+      - type: rewrite
+        src: /.*
+        status: 200
+        dest: /index.html
+
+# ===========================================
+# Database - PostgreSQL
+# ===========================================
+databases:
+  - name: sce2-db
+    databaseName: sce2
+    user: sce2_user
+    plan: free # 90 days, then $7/month

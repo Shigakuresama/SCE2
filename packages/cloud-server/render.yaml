@@ -1,0 +1,28 @@
+services:
+  # Cloud Server (API)
+  - type: web
+    name: sce2-cloud-server
+    runtime: node
+    plan: free
+    buildCommand: cd packages/cloud-server && npm install && npm run build
+    startCommand: cd packages/cloud-server && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3333
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sce2-db
+          property: connectionString
+      - key: ALLOWED_ORIGINS
+        value: https://sce2-webapp.onrender.com,https://sce2-mobile.onrender.com
+      - key: SCRAPER_API_KEY
+        sync: false
+
+databases:
+  # PostgreSQL Database
+  - name: sce2-db
+    databaseName: sce2
+    user: sce2_user
+    plan: free
