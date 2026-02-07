@@ -230,7 +230,7 @@ async function scrapeWithRapidAPI(
     throw new Error(`RapidAPI error: ${response.status} ${response.statusText}`);
   }
 
-  const json = await response.json();
+  const json: any = await response.json();
 
   // Parse RapidAPI response format
   if (json.data && json.data.length > 0) {
