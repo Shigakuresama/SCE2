@@ -12,6 +12,9 @@
     "dev:web": "npm run dev --workspace=packages/webapp",
     "dev:mobile": "npm run dev --workspace=packages/mobile-web",
     "build": "npm run build --workspaces",
+    "build:cloud": "cd packages/cloud-server && npm run build",
+    "build:web": "cd packages/webapp && npm run build",
+    "build:mobile": "cd packages/mobile-web && npm run build",
     "test": "npm run test --workspaces",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\""
