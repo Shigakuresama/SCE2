@@ -535,7 +535,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
                           <div style="min-width: 200px;">
                             <strong>📍 ${result.display_name}</strong>
                           </div>
-                        `).addTo(map);
+                        `).addTo(mapInstance);
 
                         setClickMarkers((prev) => [...prev, marker]);
 
