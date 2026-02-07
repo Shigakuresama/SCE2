@@ -2,6 +2,12 @@
 // Manages scrape queue, polling, and extension state
 
 // ==========================================
+// IMPORTS
+// ==========================================
+import { configManager, getConfig } from './lib/storage.js';
+import { PollingManager } from './lib/polling.js';
+
+// ==========================================
 // TYPE DEFINITIONS
 // ==========================================
 
@@ -49,6 +55,18 @@ interface QueueState {
   processedCount: number;
 }
 
+interface ScrapeResponse {
+  success: boolean;
+  data?: { customerName: string; customerPhone: string };
+  error?: string;
+}
+
+interface SubmitResponse {
+  success: boolean;
+  sceCaseId?: string;
+  error?: string;
+}
+
 // ==========================================
 // QUEUE MANAGEMENT
 // ==========================================
@@ -66,32 +84,10 @@ const SUBMIT_QUEUE: QueueState = {
   processedCount: 0,
 };
 
-let pollTimer: number | null = null;
-
 // ==========================================
-// CONFIGURATION
+// POLLING MANAGER
 // ==========================================
-async function getConfig(): Promise<Config> {
-  const result = await chrome.storage.sync.get({
-    apiBaseUrl: 'http://localhost:3333',
-    autoProcess: false,
-    autoStart: false,
-    pollInterval: 5000,
-    timeout: 30000,
-    maxConcurrent: 3,
-    debugMode: false,
-  });
-
-  return {
-    apiBaseUrl: result.apiBaseUrl,
-    autoProcess: result.autoProcess,
-    autoStart: result.autoStart,
-    pollInterval: result.pollInterval,
-    timeout: result.timeout,
-    maxConcurrent: result.maxConcurrent,
-    debugMode: result.debugMode,
-  };
-}
+const pollingManager = new PollingManager(poll);
 
 function log(...args: any[]): void {
   getConfig().then(config => {
@@ -223,7 +219,7 @@ async function processScrapeJob(job: ScrapeJob): Promise<void> {
           zipCode: job.zipCode,
         },
       }
-    ) as unknown as { success: boolean; data?: { customerName: string; customerPhone: string }; error?: string };
+    ) as ScrapeResponse;
 
     if (chrome.runtime.lastError) {
       throw new Error(`Content script error: ${chrome.runtime.lastError.message}`);
@@ -320,7 +316,7 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
           documents,
         },
       }
-    ) as unknown as { success: boolean; sceCaseId?: string; error?: string };
+    ) as SubmitResponse;
 
     if (chrome.runtime.lastError) {
       throw new Error(`Content script error: ${chrome.runtime.lastError.message}`);
@@ -374,7 +370,7 @@ async function markJobFailed(propertyId: number, type: string, reason: string) {
 }
 
 async function waitForTabLoad(tabId: number): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const listener = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
       if (updatedTabId === tabId && changeInfo.status === 'complete') {
         chrome.tabs.onUpdated.removeListener(listener);
@@ -382,6 +378,19 @@ async function waitForTabLoad(tabId: number): Promise<void> {
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
+
+    // Timeout after 30 seconds to prevent hanging
+    const timeoutId = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      reject(new Error('Tab load timeout'));
+    }, 30000);
+
+    // Clear timeout if resolved
+    const originalResolve = resolve;
+    resolve = () => {
+      clearTimeout(timeoutId);
+      originalResolve();
+    } as any;
   });
 }
 
@@ -443,24 +452,18 @@ async function poll(): Promise<void> {
 async function startPolling(): Promise<void> {
   const config = await getConfig();
 
-  if (pollTimer !== null) {
-    clearInterval(pollTimer);
-  }
-
   log(`Starting polling with ${config.pollInterval}ms interval`);
-
-  pollTimer = setInterval(async () => {
-    await poll();
-  }, config.pollInterval) as unknown as number;
+  pollingManager.start(config.pollInterval);
 }
 
 function stopPolling(): void {
-  if (pollTimer !== null) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-    log('Polling stopped');
-  }
+  pollingManager.stop();
 }
+
+// Subscribe to config changes to update polling interval
+configManager.subscribe((config) => {
+  pollingManager.updateInterval(config.pollInterval);
+});
 
 // Auto-start if configured
 getConfig().then(config => {
