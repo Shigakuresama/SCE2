@@ -966,6 +966,18 @@
         <div class="helper">Example: {"Project Information":{"Total Sq.Ft.":"1200","Year Built":"1970"}}</div>
       </div>
     </div>
+
+    <div class="card">
+      <h3>💾 Configuration Management</h3>
+      <div class="section-desc">Export, import, or reset your extension configuration</div>
+
+      <div class="config-actions" style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+        <button id="exportConfig" class="btn btn-secondary" style="flex: 1; min-width: 150px;">📤 Export Configuration</button>
+        <button id="importConfig" class="btn btn-secondary" style="flex: 1; min-width: 150px;">📥 Import Configuration</button>
+        <button id="resetAllConfig" class="btn btn-danger" style="flex: 1; min-width: 150px;">🔄 Reset All to Defaults</button>
+      </div>
+      <input type="file" id="configFileInput" accept=".json" style="display: none;">
+    </div>
   </div>
 
   <div class="btn-row">

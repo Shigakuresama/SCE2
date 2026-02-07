@@ -1,4 +1,5 @@
 import { loadConfig, saveConfig } from './lib/storage.js';
+import * as ConfigManager from './lib/config-manager.js';
 
 interface SCE2Config {
   // API Settings
@@ -490,6 +491,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   const resetBtn = document.getElementById('resetBtn');
   if (resetBtn) {
     resetBtn.addEventListener('click', resetToDefaults);
+  }
+
+  // Export configuration handler
+  const exportBtn = document.getElementById('exportConfig');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      ConfigManager.downloadConfigFile();
+      showStatus('Configuration exported successfully');
+    });
+  }
+
+  // Import configuration handler
+  const importBtn = document.getElementById('importConfig');
+  if (importBtn) {
+    importBtn.addEventListener('click', () => {
+      const fileInput = document.getElementById('configFileInput') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.click();
+      }
+    });
+  }
+
+  // Config file input handler
+  const fileInput = document.getElementById('configFileInput');
+  if (fileInput) {
+    fileInput.addEventListener('change', async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const json = event.target?.result as string;
+          await ConfigManager.importConfig(json);
+          showStatus('Configuration imported successfully! Reloading...');
+          setTimeout(() => location.reload(), 1000);
+        } catch (error) {
+          showStatus(`Failed to import: ${(error as Error).message}`, true);
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  // Reset all configuration handler (clears storage)
+  const resetAllBtn = document.getElementById('resetAllConfig');
+  if (resetAllBtn) {
+    resetAllBtn.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to reset ALL settings to defaults? This will clear all your saved configuration.')) {
+        await ConfigManager.resetToDefaults();
+        showStatus('Configuration reset to defaults! Reloading...');
+        setTimeout(() => location.reload(), 1000);
+      }
+    });
   }
 
   console.log('[Options] Options page initialized');
