@@ -7,12 +7,16 @@ import { PDFGenerator } from '../components/PDFGenerator';
 import { MapLayout } from '../components/MapLayout';
 import { useApp } from '../contexts/AppContext';
 import { api } from '../lib/api';
+import { searchAddress, extractStreetNumber, extractStreetName, extractZipCode } from '../lib/geocoding';
 
 export const Dashboard: React.FC = () => {
   const { properties, loading, errors, fetchProperties, clearError, selectedProperties } =
     useApp();
   const [filter, setFilter] = useState<PropertyStatus | 'ALL'>('ALL');
   const [inputMode, setInputMode] = useState<'text' | 'map'>('text');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchMessage, setSearchMessage] = useState('');
 
   const handleQueueSuccess = () => {
     fetchProperties();
@@ -24,6 +28,47 @@ export const Dashboard: React.FC = () => {
       fetchProperties();
     } catch (err) {
       console.error('Failed to queue addresses from map:', err);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+
+    setIsSearching(true);
+    setSearchMessage('');
+
+    try {
+      const result = await searchAddress(searchQuery);
+
+      if (result) {
+        // Extract address components
+        const address: AddressInput = {
+          streetNumber: extractStreetNumber(result.display_name),
+          streetName: extractStreetName(result.display_name),
+          city: result.address.city || result.address.town || result.address.village || 'Santa Ana',
+          state: result.address.state || 'CA',
+          zipCode: extractZipCode(result),
+          addressFull: result.display_name,
+          latitude: result.lat,
+          longitude: result.lon,
+        };
+
+        // Queue the address for scraping
+        try {
+          await api.queueAddressesForScraping([address]);
+          await fetchProperties(); // Refresh properties list
+          setSearchMessage(`✓ Found: ${result.display_name}`);
+          setSearchQuery(''); // Clear search input
+        } catch (apiError) {
+          setSearchMessage(`Address found but failed to queue: ${apiError instanceof Error ? apiError.message : 'Unknown error'}`);
+        }
+      } else {
+        setSearchMessage('Address not found. Try full address with city, state, ZIP (e.g., "1909 W Martha Ln, Santa Ana, CA")');
+      }
+    } catch (error) {
+      setSearchMessage(`Search error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSearching(false);
     }
   };
 
@@ -69,6 +114,46 @@ export const Dashboard: React.FC = () => {
             Refresh
           </button>
         </div>
+      </div>
+
+      {/* Address Search */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-blue-900 mb-2">
+          🔍 Fuzzy Address Search
+        </h3>
+        <p className="text-sm text-blue-700 mb-3">
+          Search for an address using multiple strategies. Try variations like "1909 W Martha Ln" or just "1909 W Martha".
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="Search address (e.g., 1909 W Martha Ln)"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            disabled={isSearching}
+          />
+          <button
+            onClick={handleSearch}
+            disabled={isSearching || !searchQuery.trim()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {isSearching ? (
+              <span className="flex items-center">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                Searching...
+              </span>
+            ) : (
+              '🔍 Search'
+            )}
+          </button>
+        </div>
+        {searchMessage && (
+          <div className={`mt-2 text-sm ${searchMessage.includes('not found') || searchMessage.includes('error') ? 'text-red-700' : 'text-green-700'}`}>
+            {searchMessage}
+          </div>
+        )}
       </div>
 
       {/* Input Mode Toggle */}

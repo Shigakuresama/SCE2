@@ -1,0 +1,383 @@
+"use strict";
+// SCE2 Extension - Background Service Worker
+// Manages scrape queue, polling, and extension state
+// ==========================================
+// QUEUE MANAGEMENT
+// ==========================================
+const SCRAPE_QUEUE = {
+    items: [],
+    currentJob: null,
+    isProcessing: false,
+    processedCount: 0,
+};
+const SUBMIT_QUEUE = {
+    items: [],
+    currentJob: null,
+    isProcessing: false,
+    processedCount: 0,
+};
+let pollTimer = null;
+// ==========================================
+// CONFIGURATION
+// ==========================================
+async function getConfig() {
+    const result = await chrome.storage.sync.get({
+        apiBaseUrl: 'http://localhost:3333',
+        autoProcess: false,
+        autoStart: false,
+        pollInterval: 5000,
+        timeout: 30000,
+        maxConcurrent: 3,
+        debugMode: false,
+    });
+    return {
+        apiBaseUrl: result.apiBaseUrl,
+        autoProcess: result.autoProcess,
+        autoStart: result.autoStart,
+        pollInterval: result.pollInterval,
+        timeout: result.timeout,
+        maxConcurrent: result.maxConcurrent,
+        debugMode: result.debugMode,
+    };
+}
+function log(...args) {
+    getConfig().then(config => {
+        if (config.debugMode) {
+            console.log('[SCE2]', ...args);
+        }
+    });
+}
+// ==========================================
+// QUEUE MANAGEMENT
+// ==========================================
+async function fetchWithTimeout(url, options = {}, timeout = 30000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        return response;
+    }
+    catch (error) {
+        clearTimeout(timeoutId);
+        if (error instanceof Error && error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeout}ms`);
+        }
+        throw error;
+    }
+}
+async function fetchScrapeJob() {
+    const config = await getConfig();
+    try {
+        log('Fetching scrape job from', `${config.apiBaseUrl}/api/queue/scrape`);
+        const response = await fetchWithTimeout(`${config.apiBaseUrl}/api/queue/scrape`, { method: 'GET' }, config.timeout);
+        if (!response.ok) {
+            log(`Scrape job fetch failed: HTTP ${response.status}`);
+            return null;
+        }
+        const data = await response.json();
+        if (data.success && data.data) {
+            log('Scrape job found:', data.data);
+            return data.data;
+        }
+        log('No scrape jobs available');
+        return null;
+    }
+    catch (error) {
+        log('Failed to fetch scrape job:', error);
+        return null;
+    }
+}
+async function fetchSubmitJob() {
+    const config = await getConfig();
+    try {
+        log('Fetching submit job from', `${config.apiBaseUrl}/api/queue/submit`);
+        const response = await fetchWithTimeout(`${config.apiBaseUrl}/api/queue/submit`, { method: 'GET' }, config.timeout);
+        if (!response.ok) {
+            log(`Submit job fetch failed: HTTP ${response.status}`);
+            return null;
+        }
+        const data = await response.json();
+        if (data.success && data.data) {
+            log('Submit job found:', data.data);
+            return data.data;
+        }
+        log('No submit jobs available');
+        return null;
+    }
+    catch (error) {
+        log('Failed to fetch submit job:', error);
+        return null;
+    }
+}
+// ==========================================
+// SCRAPE WORKFLOW
+// ==========================================
+async function processScrapeJob(job) {
+    log('Processing scrape job:', job);
+    SCRAPE_QUEUE.currentJob = job;
+    try {
+        // Open SCE form in new tab
+        const tab = await chrome.tabs.create({
+            url: 'https://sce.dsmcentral.com/onsite',
+        });
+        log(`Opened tab ${tab.id} for scrape job ${job.id}`);
+        // Wait for tab to load
+        await waitForTabLoad(tab.id);
+        log(`Tab ${tab.id} loaded`);
+        // Small delay for Angular to initialize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Send scrape command to content script
+        const response = await chrome.tabs.sendMessage(tab.id, {
+            action: 'SCRAPE_PROPERTY',
+            data: {
+                propertyId: job.id,
+                streetNumber: job.streetNumber,
+                streetName: job.streetName,
+                zipCode: job.zipCode,
+            },
+        });
+        if (chrome.runtime.lastError) {
+            throw new Error(`Content script error: ${chrome.runtime.lastError.message}`);
+        }
+        const result = response;
+        if (result.success && result.data) {
+            // Send scraped data to cloud
+            await saveScrapedData(job.id, result.data);
+            SCRAPE_QUEUE.processedCount++;
+        }
+        else {
+            throw new Error(result.error || 'Scrape failed');
+        }
+        // Close tab
+        await closeTab(tab.id);
+        log(`Scrape job ${job.id} completed successfully`);
+    }
+    catch (error) {
+        log(`Scrape job ${job.id} failed:`, error);
+        await markJobFailed(job.id, 'SCRAPE', error instanceof Error ? error.message : 'Unknown error');
+    }
+    finally {
+        SCRAPE_QUEUE.currentJob = null;
+    }
+}
+async function saveScrapedData(propertyId, data) {
+    const config = await getConfig();
+    try {
+        const response = await fetchWithTimeout(`${config.apiBaseUrl}/api/queue/${propertyId}/scraped`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                customerName: data.customerName,
+                customerPhone: data.customerPhone,
+            }),
+        }, config.timeout);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        log('Scraped data saved:', propertyId);
+    }
+    catch (error) {
+        log('Failed to save scraped data:', error);
+        await markJobFailed(propertyId, 'SCRAPE', error instanceof Error ? error.message : 'Unknown error');
+    }
+}
+// ==========================================
+// SUBMIT WORKFLOW
+// ==========================================
+async function processSubmitJob(job) {
+    log('Processing submit job:', job);
+    SUBMIT_QUEUE.currentJob = job;
+    try {
+        // Open SCE form in new tab
+        const tab = await chrome.tabs.create({
+            url: 'https://sce.dsmcentral.com/onsite',
+        });
+        log(`Opened tab ${tab.id} for submit job ${job.id}`);
+        // Wait for tab to load
+        await waitForTabLoad(tab.id);
+        log(`Tab ${tab.id} loaded`);
+        // Small delay for Angular to initialize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Prepare documents with URLs
+        const config = await getConfig();
+        const documents = job.documents.map(doc => ({
+            url: `${config.apiBaseUrl}/uploads/${doc.fileName}`,
+            name: doc.fileName,
+            type: 'image/jpeg', // Determine from actual file type
+        }));
+        // Send submit command to content script
+        const response = await chrome.tabs.sendMessage(tab.id, {
+            action: 'SUBMIT_APPLICATION',
+            data: {
+                ...job,
+                documents,
+            },
+        });
+        if (chrome.runtime.lastError) {
+            throw new Error(`Content script error: ${chrome.runtime.lastError.message}`);
+        }
+        const result = response;
+        if (result.success && result.sceCaseId) {
+            // Mark as complete
+            await markJobComplete(job.id, result.sceCaseId);
+            SUBMIT_QUEUE.processedCount++;
+        }
+        else {
+            throw new Error(result.error || 'Submit failed');
+        }
+        // Close tab
+        await closeTab(tab.id);
+        log(`Submit job ${job.id} completed successfully. Case ID: ${result.sceCaseId}`);
+    }
+    catch (error) {
+        log(`Submit job ${job.id} failed:`, error);
+        await markJobFailed(job.id, 'SUBMIT', error instanceof Error ? error.message : 'Unknown error');
+    }
+    finally {
+        SUBMIT_QUEUE.currentJob = null;
+    }
+}
+async function markJobComplete(propertyId, sceCaseId) {
+    const config = await getConfig();
+    try {
+        await fetchWithTimeout(`${config.apiBaseUrl}/api/queue/${propertyId}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sceCaseId }),
+        }, config.timeout);
+        log('Job marked complete:', propertyId);
+    }
+    catch (error) {
+        log('Failed to mark job complete:', error);
+    }
+}
+async function markJobFailed(propertyId, type, reason) {
+    log(`Job failed: ${propertyId} (${type}) - ${reason}`);
+    // Could implement retry logic here
+}
+async function waitForTabLoad(tabId) {
+    return new Promise((resolve) => {
+        const listener = (updatedTabId, changeInfo) => {
+            if (updatedTabId === tabId && changeInfo.status === 'complete') {
+                chrome.tabs.onUpdated.removeListener(listener);
+                resolve();
+            }
+        };
+        chrome.tabs.onUpdated.addListener(listener);
+    });
+}
+async function closeTab(tabId) {
+    try {
+        await chrome.tabs.remove(tabId);
+    }
+    catch (error) {
+        log('Failed to close tab:', error);
+    }
+}
+// ==========================================
+// POLLING LOOP
+// ==========================================
+async function poll() {
+    const config = await getConfig();
+    if (!config.autoProcess) {
+        log('Auto-processing disabled, skipping poll');
+        return;
+    }
+    // Don't poll if already processing max concurrent jobs
+    const activeJobs = (SCRAPE_QUEUE.isProcessing ? 1 : 0) + (SUBMIT_QUEUE.isProcessing ? 1 : 0);
+    if (activeJobs >= config.maxConcurrent) {
+        log('Max concurrent jobs reached, skipping poll');
+        return;
+    }
+    // Process scrape queue
+    if (!SCRAPE_QUEUE.isProcessing) {
+        const job = await fetchScrapeJob();
+        if (job) {
+            SCRAPE_QUEUE.isProcessing = true;
+            await processScrapeJob(job);
+            SCRAPE_QUEUE.isProcessing = false;
+        }
+    }
+    // Process submit queue
+    if (!SUBMIT_QUEUE.isProcessing) {
+        const job = await fetchSubmitJob();
+        if (job) {
+            SUBMIT_QUEUE.isProcessing = true;
+            await processSubmitJob(job);
+            SUBMIT_QUEUE.isProcessing = false;
+        }
+    }
+    log('Poll complete. Processed:', {
+        scrape: SCRAPE_QUEUE.processedCount,
+        submit: SUBMIT_QUEUE.processedCount,
+    });
+}
+// Start polling with adaptive interval
+async function startPolling() {
+    const config = await getConfig();
+    if (pollTimer !== null) {
+        clearInterval(pollTimer);
+    }
+    log(`Starting polling with ${config.pollInterval}ms interval`);
+    pollTimer = setInterval(async () => {
+        await poll();
+    }, config.pollInterval);
+}
+function stopPolling() {
+    if (pollTimer !== null) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        log('Polling stopped');
+    }
+}
+// Auto-start if configured
+getConfig().then(config => {
+    if (config.autoStart) {
+        startPolling();
+    }
+});
+// ==========================================
+// MESSAGE HANDLING
+// ==========================================
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    log('Background received message:', message);
+    switch (message.action) {
+        case 'GET_CONFIG':
+            getConfig().then(sendResponse);
+            return true;
+        case 'GET_STATUS':
+            sendResponse({
+                scrapeCount: SCRAPE_QUEUE.processedCount,
+                submitCount: SUBMIT_QUEUE.processedCount,
+                isProcessing: SCRAPE_QUEUE.isProcessing || SUBMIT_QUEUE.isProcessing,
+            });
+            break;
+        case 'START_PROCESSING':
+            getConfig().then(config => {
+                chrome.storage.sync.set({ autoProcess: true });
+                startPolling();
+                sendResponse({ success: true });
+            });
+            return true;
+        case 'STOP_PROCESSING':
+            chrome.storage.sync.set({ autoProcess: false });
+            stopPolling();
+            sendResponse({ success: true });
+            break;
+        case 'POLL_NOW':
+            poll().then(() => sendResponse({ success: true }));
+            return true;
+        default:
+            sendResponse({ error: 'Unknown action' });
+    }
+    return false;
+});
+// Log installation
+chrome.runtime.onInstalled.addListener(() => {
+    log('SCE2 Extension installed');
+});
+//# sourceMappingURL=background.js.map

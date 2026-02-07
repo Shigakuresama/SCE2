@@ -1,3 +1,5 @@
+import { loadConfig, saveConfig } from './lib/storage.js';
+
 interface ExtensionConfig {
   apiBaseUrl: string;
   pollInterval: number;
@@ -10,24 +12,20 @@ interface QueueStatus {
   isProcessing: boolean;
 }
 
+const DEFAULT_POPUP_CONFIG: ExtensionConfig = {
+  apiBaseUrl: 'http://localhost:3333',
+  pollInterval: 5000,
+  autoProcess: false,
+};
+
 // Load configuration
 async function loadPopupConfig(): Promise<ExtensionConfig> {
-  const result = await chrome.storage.sync.get({
-    apiBaseUrl: 'http://localhost:3333',
-    pollInterval: 5000,
-    autoProcess: false,
-  });
-
-  return {
-    apiBaseUrl: result.apiBaseUrl,
-    pollInterval: result.pollInterval,
-    autoProcess: result.autoProcess,
-  };
+  return loadConfig<ExtensionConfig>(DEFAULT_POPUP_CONFIG);
 }
 
 // Save configuration
 async function savePopupConfig(config: ExtensionConfig): Promise<void> {
-  await chrome.storage.sync.set(config);
+  await saveConfig(config);
 }
 
 // Get queue status from background

@@ -7,26 +7,29 @@ import type { Property } from '../types';
 import { getCloudUrl } from './config';
 
 /**
- * Test customer data for PDF generation when real data is missing
- * Diverse Orange County-appropriate names
+ * Test customer data for PDF generation
+ * Used when real customer data is missing from properties
  */
 const TEST_CUSTOMERS = [
-  { name: "Maria Garcia", phone: "(714) 555-0101" },
-  { name: "Chen Wei", phone: "(714) 555-0102" },
-  { name: "James Rodriguez", phone: "(714) 555-0103" },
-  { name: "Sarah Smith", phone: "(714) 555-0104" },
-  { name: "David Kim", phone: "(714) 555-0105" },
-  { name: "Patricia O'Brien", phone: "(714) 555-0106" },
-  { name: "Robert Johnson", phone: "(714) 555-0107" },
-  { name: "Jennifer Lee", phone: "(714) 555-0108" },
-  { name: "Michael Williams", phone: "(714) 555-0109" },
-  { name: "Linda Martinez", phone: "(714) 555-0110" },
+  { name: 'Maria Garcia', phone: '(714) 555-0101' },
+  { name: 'Chen Wei', phone: '(714) 555-0102' },
+  { name: 'James Rodriguez', phone: '(714) 555-0103' },
+  { name: 'Sarah Smith', phone: '(714) 555-0104' },
+  { name: 'David Kim', phone: '(714) 555-0105' },
+  { name: 'Patricia O\'Brien', phone: '(714) 555-0106' },
+  { name: 'Robert Johnson', phone: '(714) 555-0107' },
+  { name: 'Jennifer Lee', phone: '(714) 555-0108' },
+  { name: 'Michael Williams', phone: '(714) 555-0109' },
+  { name: 'Linda Martinez', phone: '(714) 555-0110' },
 ];
 
 /**
  * Enrich properties with test data where customer data is missing
+ *
+ * @param properties - Properties to enrich
+ * @returns Enriched properties with test data flag
  */
-function enrichWithTestData(properties: Property[]): { enriched: Property[]; usesTestData: boolean } {
+function enrichWithTestData(properties: Property[]): (Property & { _usesTestData?: boolean })[] {
   let testDataUsed = false;
 
   const enriched = properties.map((prop, index) => {
@@ -47,7 +50,12 @@ function enrichWithTestData(properties: Property[]): { enriched: Property[]; use
     return prop;
   });
 
-  return { enriched, usesTestData: testDataUsed };
+  // If test data was used, add flag
+  if (testDataUsed) {
+    (enriched as any)._usesTestData = true;
+  }
+
+  return enriched;
 }
 
 /**
@@ -76,8 +84,9 @@ export async function generateRouteSheet(
     notes = '',
   } = options;
 
-  // Enrich with test data where customer data is missing
-  const { enriched: enrichedProperties, usesTestData } = enrichWithTestData(properties);
+  // Enrich with test data if needed
+  const enrichedProperties = enrichWithTestData(properties);
+  const usesTestData = (enrichedProperties as any)._usesTestData;
 
   // Create PDF document (portrait, millimeters, A4)
   const doc = new jsPDF({
@@ -97,6 +106,15 @@ export async function generateRouteSheet(
   doc.text('SCE2 Route Sheet', margin, yPosition);
   yPosition += 10;
 
+  // Add test data watermark if applicable
+  if (usesTestData) {
+    doc.setFontSize(8);
+    doc.setTextColor(200);
+    doc.text('*** TEST DATA ***', margin, yPosition);
+    doc.setTextColor(0);
+    yPosition += 4;
+  }
+
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text(
@@ -105,21 +123,8 @@ export async function generateRouteSheet(
     yPosition
   );
   yPosition += 6;
-  doc.text(`Total Properties: ${properties.length}`, margin, yPosition);
-  yPosition += 5;
-
-  // Add test data watermark if applicable
-  if (usesTestData) {
-    doc.setFontSize(8);
-    doc.setTextColor(200, 100, 100);
-    doc.text('*** TEST DATA - Some customer information is generated for demonstration ***', margin, yPosition);
-    doc.setTextColor(0);
-    yPosition += 5;
-  } else {
-    yPosition += 5;
-  }
-
-  yPosition += 5;
+  doc.text(`Total Properties: ${enrichedProperties.length}`, margin, yPosition);
+  yPosition += 10;
 
   // Add notes section if provided
   if (notes.trim()) {
@@ -246,21 +251,7 @@ export async function generateRouteSheet(
           qrYPosition + qrSize + 4
         );
       } catch (error) {
-        // Log error and show placeholder in PDF
         console.error('Failed to generate QR code:', error);
-
-        // Add visible placeholder in PDF
-        const qrSize = 30;
-        const xPosition = pageWidth - margin - qrSize;
-        const qrYPosition = yPosition - 20;
-
-        doc.setFontSize(6);
-        doc.setTextColor(255, 0, 0);
-        doc.text('QR Unavailable', xPosition + 2, qrYPosition + 10);
-        doc.setFontSize(8);
-        doc.setTextColor(150, 150, 150);
-        doc.text('Check connection', xPosition + 2, qrYPosition + 16);
-        doc.setTextColor(0);
       }
     }
 

@@ -1,163 +1,103 @@
-// SCE2 Extension - Storage Management
-// Provides reactive config management with proper cleanup
-
-interface Config {
-  apiBaseUrl: string;
-  autoProcess: boolean;
-  autoStart: boolean;
-  pollInterval: number;
-  timeout: number;
-  maxConcurrent: number;
-  debugMode: boolean;
-}
-
-const DEFAULT_CONFIG: Config = {
-  apiBaseUrl: 'http://localhost:3333',
-  autoProcess: false,
-  autoStart: false,
-  pollInterval: 5000,
-  timeout: 30000,
-  maxConcurrent: 3,
-  debugMode: false,
-};
-
-type ConfigListener = (config: Config) => void;
+// SCE2 Extension - Generic Storage Utilities
+// Provides reusable functions for chrome.storage.sync operations
 
 /**
- * ConfigManager provides reactive configuration management.
- * Listeners are notified when configuration changes.
+ * Generic function to load configuration from chrome.storage.sync
+ * @param key - The storage key (or object with multiple keys and defaults)
+ * @param defaults - Default values to use if storage is empty
+ * @returns The configuration object with values from storage or defaults
+ *
+ * @example
+ * interface Config {
+ *   apiBaseUrl: string;
+ *   pollInterval: number;
+ *   autoProcess: boolean;
+ * }
+ *
+ * const config = await loadConfig<Config>({
+ *   apiBaseUrl: 'http://localhost:3333',
+ *   pollInterval: 5000,
+ *   autoProcess: false,
+ * });
  */
-class ConfigManager {
-  private config: Config | null = null;
-  private listeners: ConfigListener[] = [];
-  private initPromise: Promise<Config> | null = null;
-  private storageListener: ((changes: { [key: string]: chrome.storage.StorageChange }) => void) | null = null;
+export async function loadConfig<T extends Record<string, any>>(
+  defaults: T
+): Promise<T> {
+  const result = await chrome.storage.sync.get(defaults);
 
-  /**
-   * Load configuration from chrome.storage.sync
-   * Caches the result for subsequent calls.
-   */
-  async load(): Promise<Config> {
-    if (this.initPromise) {
-      return this.initPromise;
-    }
-
-    this.initPromise = new Promise((resolve) => {
-      chrome.storage.sync.get(
-        {
-          apiBaseUrl: DEFAULT_CONFIG.apiBaseUrl,
-          autoProcess: DEFAULT_CONFIG.autoProcess,
-          autoStart: DEFAULT_CONFIG.autoStart,
-          pollInterval: DEFAULT_CONFIG.pollInterval,
-          timeout: DEFAULT_CONFIG.timeout,
-          maxConcurrent: DEFAULT_CONFIG.maxConcurrent,
-          debugMode: DEFAULT_CONFIG.debugMode,
-        },
-        (result) => {
-          this.config = {
-            apiBaseUrl: result.apiBaseUrl as string,
-            autoProcess: result.autoProcess as boolean,
-            autoStart: result.autoStart as boolean,
-            pollInterval: result.pollInterval as number,
-            timeout: result.timeout as number,
-            maxConcurrent: result.maxConcurrent as number,
-            debugMode: result.debugMode as boolean,
-          };
-          resolve(this.config);
-        }
-      );
-    });
-
-    // Set up storage listener after first load
-    if (!this.storageListener) {
-      this.storageListener = (changes) => {
-        if (changes.sceConfig || changes.apiBaseUrl || changes.pollInterval || changes.autoProcess) {
-          this.invalidateCache();
-          this.load().then((newConfig) => {
-            this.notifyListeners(newConfig);
-          });
-        }
-      };
-      chrome.storage.onChanged.addListener(this.storageListener);
-    }
-
-    return this.initPromise;
-  }
-
-  /**
-   * Get current config without waiting for async.
-   * Throws if config hasn't been loaded yet.
-   */
-  get(): Config {
-    if (!this.config) {
-      throw new Error('Config not loaded. Call load() first.');
-    }
-    return this.config;
-  }
-
-  /**
-   * Update configuration and persist to storage.
-   */
-  async update(updates: Partial<Config>): Promise<void> {
-    return new Promise((resolve) => {
-      const merged = { ...this.get(), ...updates };
-      chrome.storage.sync.set(merged, () => {
-        this.config = merged;
-        this.notifyListeners(merged);
-        resolve();
-      });
-    });
-  }
-
-  /**
-   * Subscribe to configuration changes.
-   * Returns unsubscribe function.
-   */
-  subscribe(callback: ConfigListener): () => void {
-    this.listeners.push(callback);
-    // Return unsubscribe function
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== callback);
-    };
-  }
-
-  /**
-   * Invalidate cached config (force reload on next access).
-   */
-  private invalidateCache(): void {
-    this.config = null;
-    this.initPromise = null;
-  }
-
-  /**
-   * Notify all listeners of config change.
-   */
-  private notifyListeners(config: Config): void {
-    this.listeners.forEach((cb) => {
-      try {
-        cb(config);
-      } catch (error) {
-        console.error('[ConfigManager] Listener error:', error);
-      }
-    });
-  }
-
-  /**
-   * Cleanup: remove storage listener.
-   */
-  destroy(): void {
-    if (this.storageListener) {
-      chrome.storage.onChanged.removeListener(this.storageListener);
-      this.storageListener = null;
-    }
-    this.listeners = [];
-  }
+  // Return result with proper type casting
+  return result as T;
 }
 
-// Singleton instance
-export const configManager = new ConfigManager();
+/**
+ * Generic function to save configuration to chrome.storage.sync
+ * Supports partial updates (merging with existing values)
+ * @param config - Configuration object or partial configuration to save
+ *
+ * @example
+ * // Save full config
+ * await saveConfig({ apiBaseUrl: 'http://localhost:3333', pollInterval: 5000 });
+ *
+ * // Save partial config (merge with existing)
+ * await saveConfig({ pollInterval: 10000 });
+ */
+export async function saveConfig<T extends Record<string, any>>(
+  config: T | Partial<T>
+): Promise<void> {
+  await chrome.storage.sync.set(config);
+}
 
-// Convenience function for backward compatibility
-export async function getConfig(): Promise<Config> {
-  return configManager.load();
+/**
+ * Remove specific keys from chrome.storage.sync
+ * @param keys - Single key or array of keys to remove
+ *
+ * @example
+ * await removeConfig('apiBaseUrl');
+ * await removeConfig(['apiBaseUrl', 'pollInterval']);
+ */
+export async function removeConfig(keys: string | string[]): Promise<void> {
+  await chrome.storage.sync.remove(keys);
+}
+
+/**
+ * Clear all configuration from chrome.storage.sync
+ * WARNING: This will delete all stored extension settings
+ *
+ * @example
+ * await clearAllConfig();
+ */
+export async function clearAllConfig(): Promise<void> {
+  await chrome.storage.sync.clear();
+}
+
+/**
+ * Listen for configuration changes in chrome.storage.sync
+ * @param callback - Function to call when storage changes
+ * @returns Function to unsubscribe from changes
+ *
+ * @example
+ * const unsubscribe = onConfigChanged((changes, areaName) => {
+ *   if (areaName === 'sync' && changes.apiBaseUrl) {
+ *     console.log('API URL changed:', changes.apiBaseUrl.newValue);
+ *   }
+ * });
+ *
+ * // Later: unsubscribe();
+ */
+export function onConfigChanged(
+  callback: (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => void
+): () => void {
+  const listener = (
+    changes: { [key: string]: chrome.storage.StorageChange },
+    areaName: string
+  ) => {
+    callback(changes, areaName);
+  };
+
+  chrome.storage.onChanged.addListener(listener);
+
+  // Return unsubscribe function
+  return () => {
+    chrome.storage.onChanged.removeListener(listener);
+  };
 }

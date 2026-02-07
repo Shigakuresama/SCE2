@@ -6,10 +6,14 @@
  */
 
 import { Property } from '../types';
-import type { SearchResult as GeocodingResult } from './geocoding';
 
-// Re-export SearchResult from geocoding to maintain single source of truth
-export type SearchResult = GeocodingResult;
+export interface SearchResult {
+  name?: string;
+  display_name: string;
+  address?: {
+    [key: string]: string;
+  };
+}
 
 /**
  * Check if an address represents an apartment complex.
