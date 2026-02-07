@@ -2,6 +2,7 @@
 // Runs on sce.dsmcentral.com - handles form scraping and submission
 
 import { SCEHelper } from './lib/sce-helper.js';
+import type { AdditionalCustomerInfo } from './lib/sections/additional-customer.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -36,6 +37,7 @@ interface ScrapeResult {
     customerName: string;
     customerPhone: string;
     customerEmail?: string;
+    additionalInfo?: Partial<AdditionalCustomerInfo>;
   };
   error?: string;
 }
@@ -155,6 +157,82 @@ function waitForTextContent(
 }
 
 // ==========================================
+// ADDITIONAL CUSTOMER INFO EXTRACTION
+// ==========================================
+/**
+ * Extracts all 18 fields from the Additional Customer Information section.
+ * This section is visible after clicking a program button.
+ *
+ * Returns a Partial<AdditionalCustomerInfo> with any fields that were found.
+ */
+function extractAdditionalCustomerInfo(): Partial<AdditionalCustomerInfo> {
+  const result: Partial<AdditionalCustomerInfo> = {};
+
+  // Helper to find dropdown value by label text
+  const getDropdownValue = (labelText: string): string | undefined => {
+    const labels = Array.from(document.querySelectorAll('mat-form-field mat-label'));
+    const label = labels.find(l =>
+      l.textContent?.trim().toLowerCase().includes(labelText.toLowerCase())
+    );
+
+    if (!label) return undefined;
+
+    const formField = label.closest('mat-form-field');
+    const trigger = formField?.querySelector('mat-select') as HTMLElement | null;
+
+    if (!trigger) {
+      // Try to find an input instead (for text fields)
+      const input = formField?.querySelector('input');
+      return input?.value || undefined;
+    }
+
+    // For mat-select, the selected value is often in a span inside the trigger
+    const selectedText = trigger.querySelector('span.mat-select-value-text')?.textContent?.trim();
+    return selectedText || undefined;
+  };
+
+  // Helper to find input value by label text
+  const getInputValue = (labelText: string): string | undefined => {
+    const labels = Array.from(document.querySelectorAll('mat-form-field mat-label'));
+    const label = labels.find(l =>
+      l.textContent?.trim().toLowerCase().includes(labelText.toLowerCase())
+    );
+
+    if (!label) return undefined;
+
+    const formField = label.closest('mat-form-field');
+    const input = formField?.querySelector('input') as HTMLInputElement | null;
+
+    return input?.value || undefined;
+  };
+
+  // Extract all 18 fields
+  result.title = getDropdownValue('Title');
+  result.preferredContactTime = getDropdownValue('Preferred Contact Time');
+  result.language = getDropdownValue('Language');
+  result.ethnicity = getDropdownValue('Ethnicity');
+  result.householdUnits = getInputValue('Household Units') || getInputValue('Units');
+  result.spaceOrUnit = getInputValue('Space/Unit') || getInputValue('Space Or Unit');
+  result.howDidYouHear = getDropdownValue('How Did You Hear');
+  result.masterMetered = getDropdownValue('Master Metered');
+  result.buildingType = getDropdownValue('Building Type');
+  result.homeownerStatus = getDropdownValue('Homeowner Status');
+  result.gasProvider = getDropdownValue('Gas Provider');
+  result.gasAccountNumber = getInputValue('Gas Account');
+  result.waterUtility = getDropdownValue('Water Utility');
+  result.incomeVerifiedDate = getInputValue('Income Verified');
+  result.primaryApplicantAge = getInputValue('Primary Applicant Age');
+  result.permanentlyDisabled = getDropdownValue('Permanently Disabled');
+  result.veteran = getDropdownValue('Veteran');
+  result.nativeAmerican = getDropdownValue('Native American');
+
+  // Log extracted data for debugging
+  console.log('Extracted Additional Customer Info:', result);
+
+  return result;
+}
+
+// ==========================================
 // SCRAPE MODE
 // ==========================================
 async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResult> {
@@ -195,13 +273,18 @@ async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResu
     const phoneElement = document.querySelector('.customer-phone-label');
     const customerPhone = phoneElement?.textContent?.trim() || '';
 
-    console.log('Scraped data:', { customerName, customerPhone });
+    // 6. Extract Additional Customer Information
+    console.log('Extracting additional customer information...');
+    const additionalInfo = extractAdditionalCustomerInfo();
+
+    console.log('Scraped data:', { customerName, customerPhone, additionalInfo });
 
     return {
       success: true,
       data: {
         customerName,
         customerPhone,
+        additionalInfo,
       },
     };
   } catch (error) {
