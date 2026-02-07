@@ -8,6 +8,7 @@ export default defineConfig({
     port: 5174,
     host: true, // Allow external connections
     strictPort: true,
+    https: true, // Required for camera access in development
     allowedHosts: ['.trycloudflare.com', '.loca.lt', 'localhost'], // Allow cloudflare tunnels
     proxy: {
       '/api': {
