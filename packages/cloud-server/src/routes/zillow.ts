@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { scrapeZillowData } from '../lib/zillow.js';
+import { clearZillowCache, getCacheStats } from '../lib/proxy-scraper.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { ValidationError } from '../types/errors.js';
 
@@ -59,5 +60,31 @@ zillowRoutes.get('/health', (req, res) => {
     success: true,
     service: 'zillow-scraper',
     status: 'operational',
+  });
+});
+
+/**
+ * GET /api/zillow/cache/stats
+ *
+ * Gets Zillow scraping cache statistics
+ */
+zillowRoutes.get('/cache/stats', (req, res) => {
+  const stats = getCacheStats();
+  res.json({
+    success: true,
+    data: stats,
+  });
+});
+
+/**
+ * DELETE /api/zillow/cache
+ *
+ * Clears the Zillow scraping cache
+ */
+zillowRoutes.delete('/cache', (req, res) => {
+  clearZillowCache();
+  res.json({
+    success: true,
+    message: 'Zillow cache cleared successfully',
   });
 });

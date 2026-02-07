@@ -421,3 +421,30 @@ function getApiKey(service: ProxyService): string | null {
       return null;
   }
 }
+
+/**
+ * Clears the Zillow data cache
+ */
+export function clearZillowCache(): void {
+  zillowCache.clear();
+  cacheTimestamps.clear();
+  console.log('[Zillow] Cache cleared');
+}
+
+/**
+ * Gets cache statistics
+ */
+export function getCacheStats(): {
+  size: number;
+  entries: Array<{ key: string; timestamp: number; age: number }>;
+} {
+  const now = Date.now();
+  return {
+    size: zillowCache.size,
+    entries: Array.from(cacheTimestamps.entries()).map(([key, timestamp]) => ({
+      key,
+      timestamp,
+      age: Math.floor((now - timestamp) / 1000), // age in seconds
+    })),
+  };
+}
