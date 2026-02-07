@@ -13,6 +13,16 @@ import type { BonusInfo } from './sections/bonus.js';
 import type { TermsInfo } from './sections/terms.js';
 import type { CommentsInfo } from './sections/comments.js';
 import type { StatusInfo } from './sections/status.js';
+import { SectionNavigator, type SectionName } from './section-navigator.js';
+import {
+  ElementNotFoundError,
+  withErrorHandling,
+  withRetry,
+  withErrorCollection,
+  logOperation,
+  logError,
+  getSuggestedFix,
+} from './error-handler.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -55,62 +65,128 @@ function sleep(ms: number): Promise<void> {
 // ==========================================
 
 export class SCEHelper {
+  private sectionNavigator: SectionNavigator;
+
+  constructor() {
+    this.sectionNavigator = new SectionNavigator();
+  }
+
+  // ==========================================
+  // NAVIGATION HELPERS
+  // ==========================================
+  /**
+   * Get the current section navigator instance
+   */
+  getNavigator(): SectionNavigator {
+    return this.sectionNavigator;
+  }
+
+  /**
+   * Navigate to a specific section
+   */
+  async goToSection(sectionName: SectionName): Promise<boolean> {
+    return logOperation(
+      `Navigate to ${sectionName}`,
+      () => this.sectionNavigator.goTo(sectionName),
+      'SCEHelper'
+    );
+  }
+
+  /**
+   * Navigate to the next section
+   */
+  async goToNextSection(): Promise<boolean> {
+    return logOperation(
+      'Navigate to next section',
+      () => this.sectionNavigator.next(),
+      'SCEHelper'
+    );
+  }
+
+  /**
+   * Navigate to the previous section
+   */
+  async goToPreviousSection(): Promise<boolean> {
+    return logOperation(
+      'Navigate to previous section',
+      () => this.sectionNavigator.previous(),
+      'SCEHelper'
+    );
+  }
+
   // ==========================================
   // FIELD FILLING (Angular Material Pattern)
   // ==========================================
   async fillField(selector: string, value: string, fieldName = 'field'): Promise<void> {
-    const element = document.querySelector(selector) as HTMLInputElement;
+    const result = await withErrorHandling(
+      `Fill ${fieldName}`,
+      async () => {
+        const element = document.querySelector(selector) as HTMLInputElement;
 
-    if (!element) {
-      throw new Error(`Element not found: ${selector} (field: ${fieldName})`);
+        if (!element) {
+          throw new ElementNotFoundError(selector, fieldName);
+        }
+
+        console.log(`Filling ${fieldName}:`, value);
+
+        // Focus with click (critical for Angular)
+        element.focus();
+        element.click();
+        await sleep(150);
+
+        // Clear existing value
+        element.value = '';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        await sleep(50);
+
+        // Use native setter for Angular to detect
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          'value'
+        )?.set;
+
+        if (nativeInputValueSetter) {
+          nativeInputValueSetter.call(element, value);
+        } else {
+          element.value = value;
+        }
+
+        // Trigger comprehensive events
+        element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+        element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+
+        // Wait for Angular to process
+        await sleep(300);
+
+        // Verify value was set
+        if (element.value !== value) {
+          console.warn(`Field ${fieldName} not set correctly, retrying...`);
+          // Retry with simpler approach
+          await sleep(200);
+          element.focus();
+          element.value = value;
+          element.dispatchEvent(new InputEvent('input', { bubbles: true }));
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(200);
+        }
+
+        element.blur();
+
+        return value;
+      },
+      `SCEHelper.fillField`
+    );
+
+    if (!result.success) {
+      const suggestion = getSuggestedFix(result.error);
+      console.error(`Failed to fill ${fieldName}:`, result.error.message);
+      if (suggestion) {
+        console.info(`Suggested fix: ${suggestion}`);
+      }
+      throw result.error;
     }
-
-    console.log(`Filling ${fieldName}:`, value);
-
-    // Focus with click (critical for Angular)
-    element.focus();
-    element.click();
-    await sleep(150);
-
-    // Clear existing value
-    element.value = '';
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    await sleep(50);
-
-    // Use native setter for Angular to detect
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      'value'
-    )?.set;
-
-    if (nativeInputValueSetter) {
-      nativeInputValueSetter.call(element, value);
-    } else {
-      element.value = value;
-    }
-
-    // Trigger comprehensive events
-    element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
-    element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-
-    // Wait for Angular to process
-    await sleep(300);
-
-    // Verify value was set
-    if (element.value !== value) {
-      console.warn(`Field ${fieldName} not set correctly, retrying...`);
-      // Retry with simpler approach
-      await sleep(200);
-      element.focus();
-      element.value = value;
-      element.dispatchEvent(new InputEvent('input', { bubbles: true }));
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(200);
-    }
-
-    element.blur();
   }
 
   // ==========================================
@@ -520,30 +596,78 @@ export class SCEHelper {
     termsInfo?: Partial<TermsInfo>;
     commentsInfo?: Partial<CommentsInfo>;
     statusInfo?: Partial<StatusInfo>;
-  }): Promise<void> {
+  }): Promise<{
+    successful: string[];
+    failed: Array<{ section: string; error: string }>;
+  }> {
     console.log('Filling all sections...');
 
-    const fillResults = await Promise.allSettled([
-      sections.additionalInfo ? this.fillAdditionalCustomerInfo(sections.additionalInfo) : Promise.resolve(true),
-      sections.projectInfo ? this.fillProjectInfo(sections.projectInfo) : Promise.resolve(true),
-      sections.tradeAllyInfo ? this.fillTradeAllyInfo(sections.tradeAllyInfo) : Promise.resolve(true),
-      sections.assessmentInfo ? this.fillAssessmentInfo(sections.assessmentInfo) : Promise.resolve(true),
-      sections.householdInfo ? this.fillHouseholdInfo(sections.householdInfo) : Promise.resolve(true),
-      sections.enrollmentInfo ? this.fillEnrollmentInfo(sections.enrollmentInfo) : Promise.resolve(true),
-      sections.equipmentInfo ? this.fillEquipmentInfo(sections.equipmentInfo) : Promise.resolve(true),
-      sections.basicEnrollmentInfo ? this.fillBasicEnrollmentInfo(sections.basicEnrollmentInfo) : Promise.resolve(true),
-      sections.bonusInfo ? this.fillBonusInfo(sections.bonusInfo) : Promise.resolve(true),
-      sections.termsInfo ? this.fillTermsInfo(sections.termsInfo) : Promise.resolve(true),
-      sections.commentsInfo ? this.fillCommentsInfo(sections.commentsInfo) : Promise.resolve(true),
-      sections.statusInfo ? this.fillStatusInfo(sections.statusInfo) : Promise.resolve(true),
-    ]);
+    // Build operations list
+    const operations: Array<{ name: string; fn: () => Promise<boolean> }> = [];
 
-    const failures = fillResults.filter(r => r.status === 'rejected');
-    if (failures.length > 0) {
-      console.warn(`Failed to fill ${failures.length} sections:`, failures.map(f => f.status === 'rejected' ? f.reason : 'unknown'));
-    } else {
-      console.log('All sections filled successfully');
+    if (sections.additionalInfo) {
+      operations.push({ name: 'Additional Customer Info', fn: () => this.fillAdditionalCustomerInfo(sections.additionalInfo!) });
     }
+    if (sections.projectInfo) {
+      operations.push({ name: 'Project Info', fn: () => this.fillProjectInfo(sections.projectInfo!) });
+    }
+    if (sections.tradeAllyInfo) {
+      operations.push({ name: 'Trade Ally Info', fn: () => this.fillTradeAllyInfo(sections.tradeAllyInfo!) });
+    }
+    if (sections.assessmentInfo) {
+      operations.push({ name: 'Assessment Questionnaire', fn: () => this.fillAssessmentInfo(sections.assessmentInfo!) });
+    }
+    if (sections.householdInfo) {
+      operations.push({ name: 'Household Members', fn: () => this.fillHouseholdInfo(sections.householdInfo!) });
+    }
+    if (sections.enrollmentInfo) {
+      operations.push({ name: 'Enrollment Information', fn: () => this.fillEnrollmentInfo(sections.enrollmentInfo!) });
+    }
+    if (sections.equipmentInfo) {
+      operations.push({ name: 'Equipment Information', fn: () => this.fillEquipmentInfo(sections.equipmentInfo!) });
+    }
+    if (sections.basicEnrollmentInfo) {
+      operations.push({ name: 'Basic Enrollment', fn: () => this.fillBasicEnrollmentInfo(sections.basicEnrollmentInfo!) });
+    }
+    if (sections.bonusInfo) {
+      operations.push({ name: 'Bonus Program', fn: () => this.fillBonusInfo(sections.bonusInfo!) });
+    }
+    if (sections.termsInfo) {
+      operations.push({ name: 'Terms and Conditions', fn: () => this.fillTermsInfo(sections.termsInfo!) });
+    }
+    if (sections.commentsInfo) {
+      operations.push({ name: 'Comments', fn: () => this.fillCommentsInfo(sections.commentsInfo!) });
+    }
+    if (sections.statusInfo) {
+      operations.push({ name: 'Status', fn: () => this.fillStatusInfo(sections.statusInfo!) });
+    }
+
+    // Execute all operations with error collection
+    const results = await withErrorCollection(operations);
+
+    // Log summary
+    console.log(`All sections filling complete:`, {
+      successful: results.successful.length,
+      failed: results.failed.length,
+    });
+
+    if (results.failed.length > 0) {
+      console.warn('Failed sections:', results.failed.map(f => `${f.name}: ${f.error.message}`));
+
+      // Log errors for debugging
+      for (const failure of results.failed) {
+        logError(failure.error, `fillAllSections - ${failure.name}`);
+        const suggestion = getSuggestedFix(failure.error);
+        if (suggestion) {
+          console.info(`Suggested fix for ${failure.name}: ${suggestion}`);
+        }
+      }
+    }
+
+    return {
+      successful: results.successful.map(s => s.name),
+      failed: results.failed.map(f => ({ section: f.name, error: f.error.message })),
+    };
   }
 }
 
@@ -688,6 +812,7 @@ export async function fillStatusInfo(data: Partial<StatusInfo>): Promise<boolean
 /**
  * Fill all sections at once
  * @param sections - All section data
+ * @returns Result with successful and failed sections
  */
 export async function fillAllSections(sections: {
   additionalInfo?: Partial<AdditionalCustomerInfo>;
@@ -702,7 +827,10 @@ export async function fillAllSections(sections: {
   termsInfo?: Partial<TermsInfo>;
   commentsInfo?: Partial<CommentsInfo>;
   statusInfo?: Partial<StatusInfo>;
-}): Promise<void> {
+}): Promise<{
+  successful: string[];
+  failed: Array<{ section: string; error: string }>;
+}> {
   const helper = new SCEHelper();
   return helper.fillAllSections(sections);
 }
