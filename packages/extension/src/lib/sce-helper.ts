@@ -1,6 +1,8 @@
 // SCE Helper class for form interactions
 // Enhanced with Angular Material patterns from SCE v1
 
+import type { AdditionalCustomerInfo } from './sections/additional-customer';
+
 // ==========================================
 // TYPE DEFINITIONS
 // ==========================================
@@ -296,4 +298,75 @@ export class SCEHelper {
       }
     }
   }
+
+  // ==========================================
+  // ADDITIONAL CUSTOMER INFO
+  // ==========================================
+  async fillAdditionalCustomerInfo(data: Partial<AdditionalCustomerInfo>): Promise<boolean> {
+    const helper = new SCEHelper();
+
+    const results = await Promise.allSettled([
+      // Dropdown fields
+      data.title ? helper.fillSelect('', data.title, true) : Promise.resolve(),
+      data.preferredContactTime ? helper.fillSelect('', data.preferredContactTime, true) : Promise.resolve(),
+      data.language ? helper.fillSelect('', data.language, true) : Promise.resolve(),
+      data.ethnicity ? helper.fillSelect('', data.ethnicity, true) : Promise.resolve(),
+      data.howDidYouHear ? helper.fillSelect('', data.howDidYouHear, true) : Promise.resolve(),
+      data.masterMetered ? helper.fillSelect('', data.masterMetered, true) : Promise.resolve(),
+      data.buildingType ? helper.fillSelect('', data.buildingType, true) : Promise.resolve(),
+      data.homeownerStatus ? helper.fillSelect('', data.homeownerStatus, true) : Promise.resolve(),
+      data.gasProvider ? helper.fillSelect('', data.gasProvider, true) : Promise.resolve(),
+      data.waterUtility ? helper.fillSelect('', data.waterUtility, true) : Promise.resolve(),
+      data.permanentlyDisabled ? helper.fillSelect('', data.permanentlyDisabled, true) : Promise.resolve(),
+      data.veteran ? helper.fillSelect('', data.veteran, true) : Promise.resolve(),
+      data.nativeAmerican ? helper.fillSelect('', data.nativeAmerican, true) : Promise.resolve(),
+      // Text input fields
+      data.householdUnits ? helper.fillField('', data.householdUnits, 'Number of Units') : Promise.resolve(),
+      data.spaceOrUnit ? helper.fillField('', data.spaceOrUnit, 'Space/Unit') : Promise.resolve(),
+      data.gasAccountNumber ? helper.fillField('', data.gasAccountNumber, 'Gas Account Number') : Promise.resolve(),
+      data.incomeVerifiedDate ? helper.fillField('', data.incomeVerifiedDate, 'Income Verified Date') : Promise.resolve(),
+      data.primaryApplicantAge ? helper.fillField('', data.primaryApplicantAge, 'Primary Applicant Age') : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+}
+
+// ==========================================
+// HELPER FUNCTIONS (Standalone)
+// ==========================================
+
+/**
+ * Set dropdown field by label text
+ * @param labelText - The label text to find the dropdown
+ * @param value - The value to select
+ */
+export async function setDropdown(labelText: string, value?: string): Promise<void> {
+  if (!value) return Promise.resolve();
+
+  const helper = new SCEHelper();
+  return helper.fillSelect('', value, true);
+}
+
+/**
+ * Set input field value by label text
+ * @param labelText - The label text to find the input
+ * @param value - The value to set
+ */
+export async function setInputValue(labelText: string, value?: string): Promise<void> {
+  if (!value) return Promise.resolve();
+
+  const helper = new SCEHelper();
+  return helper.fillField('', value, labelText);
+}
+
+/**
+ * Fill Additional Customer Information section
+ * @param data - Additional customer data
+ */
+export async function fillAdditionalCustomerInfo(
+  data: Partial<AdditionalCustomerInfo>
+): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillAdditionalCustomerInfo(data);
 }
