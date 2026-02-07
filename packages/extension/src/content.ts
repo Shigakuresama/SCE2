@@ -3,6 +3,8 @@
 
 import { SCEHelper } from './lib/sce-helper.js';
 import type { AdditionalCustomerInfo } from './lib/sections/additional-customer.js';
+import type { ProjectInfo } from './lib/sections/project.js';
+import { fetchZillowDataWithCache } from './lib/zillow-client.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -38,6 +40,7 @@ interface ScrapeResult {
     customerPhone: string;
     customerEmail?: string;
     additionalInfo?: Partial<AdditionalCustomerInfo>;
+    projectInfo?: Partial<ProjectInfo>;
   };
   error?: string;
 }
@@ -233,6 +236,67 @@ function extractAdditionalCustomerInfo(): Partial<AdditionalCustomerInfo> {
 }
 
 // ==========================================
+// PROJECT INFO EXTRACTION
+// ==========================================
+/**
+ * Extracts all 3 fields from the Project Information section.
+ * This section contains property details like square footage and year built.
+ *
+ * Returns a Partial<ProjectInfo> with any fields that were found.
+ */
+async function extractProjectInfo(
+  address: string,
+  zipCode: string
+): Promise<Partial<ProjectInfo>> {
+  const result: Partial<ProjectInfo> = {};
+
+  // Helper to find input value by label text
+  const getInputValue = (labelText: string): string | undefined => {
+    const labels = Array.from(document.querySelectorAll('mat-form-field mat-label'));
+    const label = labels.find(l =>
+      l.textContent?.trim().toLowerCase().includes(labelText.toLowerCase())
+    );
+
+    if (!label) return undefined;
+
+    const formField = label.closest('mat-form-field');
+    const input = formField?.querySelector('input') as HTMLInputElement | null;
+
+    return input?.value || undefined;
+  };
+
+  // Extract all 3 fields
+  result.squareFootage = getInputValue('Square Footage') || getInputValue('Sq Ft');
+  result.yearBuilt = getInputValue('Year Built');
+  result.propertyType = getInputValue('Property Type');
+
+  // Try to enrich with Zillow data if fields are empty
+  if (!result.squareFootage || !result.yearBuilt) {
+    console.log('[Project] Enriching with Zillow data...');
+    const zillowData = await fetchZillowDataWithCache(address, zipCode);
+
+    if (zillowData.sqFt && !result.squareFootage) {
+      result.zillowSqFt = zillowData.sqFt;
+      console.log(`[Project] Using Zillow sqft: ${zillowData.sqFt}`);
+    }
+
+    if (zillowData.yearBuilt && !result.yearBuilt) {
+      result.zillowYearBuilt = zillowData.yearBuilt;
+      console.log(`[Project] Using Zillow year built: ${zillowData.yearBuilt}`);
+    }
+
+    if (zillowData.zestimate) {
+      result.zestimate = zillowData.zestimate;
+    }
+  }
+
+  // Log extracted data for debugging
+  console.log('Extracted Project Info:', result);
+
+  return result;
+}
+
+// ==========================================
 // SCRAPE MODE
 // ==========================================
 async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResult> {
@@ -277,7 +341,14 @@ async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResu
     console.log('Extracting additional customer information...');
     const additionalInfo = extractAdditionalCustomerInfo();
 
-    console.log('Scraped data:', { customerName, customerPhone, additionalInfo });
+    // 7. Extract Project Information (with Zillow enrichment)
+    console.log('Extracting project information...');
+    const projectInfo = await extractProjectInfo(
+      `${addressData.streetNumber} ${addressData.streetName}`,
+      addressData.zipCode
+    );
+
+    console.log('Scraped data:', { customerName, customerPhone, additionalInfo, projectInfo });
 
     return {
       success: true,
@@ -285,6 +356,7 @@ async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResu
         customerName,
         customerPhone,
         additionalInfo,
+        projectInfo,
       },
     };
   } catch (error) {
