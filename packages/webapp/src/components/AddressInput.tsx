@@ -96,8 +96,11 @@ export const AddressInput: React.FC<AddressInputProps> = ({ onSuccess }) => {
     setError(null);
 
     try {
-      const addressStrings = addresses.map((addr) => addr.addressFull.trim());
-      await api.queueAddressesForScraping(addressStrings);
+      const addressesToQueue = addresses.map((addr) => ({
+        ...addr,
+        addressFull: addr.addressFull.trim(),
+      }));
+      await api.queueAddressesForScraping(addressesToQueue);
       onSuccess();
 
       // Reset form
