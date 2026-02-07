@@ -1,33 +1,30 @@
 // ============= PDF Generation =============
-// Generate route sheets with property details and QR codes for mobile access
+// Generate 3x3 grid route sheets with AGE/NOTES display fields and QR codes
 
 import jsPDF from 'jspdf';
 import QRCode from 'qrcode';
 import type { Property } from '../types';
 import { getCloudUrl } from './config';
+import { optimizeRoute, groupIntoPages } from './route-optimizer';
 
 /**
  * Test customer data for PDF generation
  * Used when real customer data is missing from properties
  */
 const TEST_CUSTOMERS = [
-  { name: 'Maria Garcia', phone: '(714) 555-0101' },
-  { name: 'Chen Wei', phone: '(714) 555-0102' },
-  { name: 'James Rodriguez', phone: '(714) 555-0103' },
-  { name: 'Sarah Smith', phone: '(714) 555-0104' },
-  { name: 'David Kim', phone: '(714) 555-0105' },
-  { name: 'Patricia O\'Brien', phone: '(714) 555-0106' },
-  { name: 'Robert Johnson', phone: '(714) 555-0107' },
-  { name: 'Jennifer Lee', phone: '(714) 555-0108' },
-  { name: 'Michael Williams', phone: '(714) 555-0109' },
-  { name: 'Linda Martinez', phone: '(714) 555-0110' },
+  { name: 'Maria Garcia', phone: '(714) 555-0101', age: 45 },
+  { name: 'Chen Wei', phone: '(714) 555-0102', age: 52 },
+  { name: 'James Rodriguez', phone: '(714) 555-0103', age: 38 },
+  { name: 'Sarah Smith', phone: '(714) 555-0104', age: 61 },
+  { name: 'David Kim', phone: '(714) 555-0105', age: 29 },
+  { name: 'Patricia O\'Brien', phone: '(714) 555-0106', age: 55 },
+  { name: 'Robert Johnson', phone: '(714) 555-0107', age: 42 },
+  { name: 'Jennifer Lee', phone: '(714) 555-0108', age: 33 },
+  { name: 'Michael Williams', phone: '(714) 555-0109', age: 48 },
 ];
 
 /**
  * Enrich properties with test data where customer data is missing
- *
- * @param properties - Properties to enrich
- * @returns Enriched properties with test data flag
  */
 function enrichWithTestData(properties: Property[]): (Property & { _usesTestData?: boolean })[] {
   let testDataUsed = false;
@@ -35,8 +32,9 @@ function enrichWithTestData(properties: Property[]): (Property & { _usesTestData
   const enriched = properties.map((prop, index) => {
     const needsName = !prop.customerName || prop.customerName?.trim() === '';
     const needsPhone = !prop.customerPhone || prop.customerPhone?.trim() === '';
+    const needsAge = !prop.customerAge;
 
-    if (needsName || needsPhone) {
+    if (needsName || needsPhone || needsAge) {
       testDataUsed = true;
       const testData = TEST_CUSTOMERS[index % TEST_CUSTOMERS.length];
 
@@ -44,13 +42,13 @@ function enrichWithTestData(properties: Property[]): (Property & { _usesTestData
         ...prop,
         customerName: needsName ? testData.name : prop.customerName,
         customerPhone: needsPhone ? testData.phone : prop.customerPhone,
+        customerAge: needsAge ? testData.age : prop.customerAge,
       };
     }
 
     return prop;
   });
 
-  // If test data was used, add flag
   if (testDataUsed) {
     (enriched as any)._usesTestData = true;
   }
@@ -65,10 +63,82 @@ export interface PDFGenerationOptions {
   includeQR?: boolean;
   includeCustomerData?: boolean;
   notes?: string;
+  startLat?: number;
+  startLon?: number;
 }
 
 /**
- * Generate a route sheet PDF for multiple properties
+ * Draw a fillable-style field box (visual only, to be filled by hand)
+ * Similar to IRS W-2 form fields
+ */
+function drawFieldBox(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  label: string,
+  value: string
+): void {
+  // Draw field border
+  doc.setDrawColor(150, 150, 150);
+  doc.setLineWidth(0.3);
+  doc.rect(x, y, width, height, 'S');
+
+  // Draw label above field
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.text(label, x, y - 2);
+
+  // Draw value inside field
+  if (value) {
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(value, x + 2, y + height / 2 + 2);
+  }
+}
+
+/**
+ * Draw a multiline notes box
+ */
+function drawNotesBox(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  label: string,
+  value: string
+): void {
+  // Draw field border
+  doc.setDrawColor(150, 150, 150);
+  doc.setLineWidth(0.3);
+  doc.rect(x, y, width, height, 'S');
+
+  // Draw label above field
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.text(label, x, y - 2);
+
+  // Draw value inside field (word wrapped)
+  if (value) {
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    const lines = doc.splitTextToSize(value, width - 4);
+    doc.text(lines.slice(0, 4), x + 2, y + 5);
+  } else {
+    // Draw placeholder lines
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.2);
+    for (let i = 0; i < 4; i++) {
+      doc.line(x + 2, y + 5 + i * 5, x + width - 2, y + 5 + i * 5);
+    }
+  }
+}
+
+/**
+ * Generate a 3x3 grid route sheet PDF
+ * Properties are optimized for route order and arranged in a 3x3 grid per page
  *
  * @param properties - Array of properties to include in the PDF
  * @param options - PDF generation options
@@ -81,195 +151,212 @@ export async function generateRouteSheet(
   const {
     includeQR = true,
     includeCustomerData = true,
-    notes = '',
+    startLat,
+    startLon,
   } = options;
 
+  // Optimize route order
+  const optimizedProperties = optimizeRoute(properties, startLat, startLon);
+
   // Enrich with test data if needed
-  const enrichedProperties = enrichWithTestData(properties);
+  const enrichedProperties = enrichWithTestData(optimizedProperties);
   const usesTestData = (enrichedProperties as any)._usesTestData;
 
-  // Create PDF document (portrait, millimeters, A4)
+  // Group into pages of 9 (3x3 grid)
+  const pages = groupIntoPages(enrichedProperties);
+
+  // Create PDF document (portrait, millimeters, Letter)
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
-    format: 'a4',
+    format: 'letter',
   });
 
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 15;
-  let yPosition = margin;
+  const pageWidth = doc.internal.pageSize.getWidth(); // 216mm for Letter
+  const pageHeight = doc.internal.pageSize.getHeight(); // 279mm for Letter
+  const margin = 10;
+  const headerHeight = 25;
 
-  // Add header
-  doc.setFontSize(20);
-  doc.setFont('helvetica', 'bold');
-  doc.text('SCE2 Route Sheet', margin, yPosition);
-  yPosition += 10;
-
-  // Add test data watermark if applicable
-  if (usesTestData) {
-    doc.setFontSize(8);
-    doc.setTextColor(200);
-    doc.text('*** TEST DATA ***', margin, yPosition);
-    doc.setTextColor(0);
-    yPosition += 4;
-  }
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text(
-    `Generated: ${new Date().toLocaleString()}`,
-    margin,
-    yPosition
-  );
-  yPosition += 6;
-  doc.text(`Total Properties: ${enrichedProperties.length}`, margin, yPosition);
-  yPosition += 10;
-
-  // Add notes section if provided
-  if (notes.trim()) {
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Notes:', margin, yPosition);
-    yPosition += 6;
-
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-
-    // Word wrap for notes
-    const lines = doc.splitTextToSize(notes, pageWidth - 2 * margin);
-    doc.text(lines, margin, yPosition);
-    yPosition += lines.length * 5 + 10;
-  }
-
-  // Add properties
-  for (let i = 0; i < enrichedProperties.length; i++) {
-    const property = enrichedProperties[i];
-
-    // Check if we need a new page
-    if (yPosition > pageHeight - 80) {
+  // Generate each page
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+    if (pageIndex > 0) {
       doc.addPage();
-      yPosition = margin;
     }
 
-    // Draw separator line
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.5);
-    doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 10;
+    const pageProperties = pages[pageIndex];
 
-    // Property number and address
-    doc.setFontSize(14);
+    // Add header
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Property ${i + 1}:`, margin, yPosition);
-    yPosition += 7;
+    doc.text('SCE2 Route Sheet', margin, 15);
 
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
-    const addressLines = doc.splitTextToSize(
-      property.addressFull,
-      pageWidth - 2 * margin
-    );
-    doc.text(addressLines, margin, yPosition);
-    yPosition += addressLines.length * 6 + 5;
-
-    // Customer data if requested and available
-    if (includeCustomerData) {
-      if (property.customerName) {
-        doc.setFontSize(10);
-        doc.text(`Customer: ${property.customerName}`, margin, yPosition);
-        yPosition += 5;
-      }
-
-      if (property.customerPhone) {
-        doc.text(`Phone: ${property.customerPhone}`, margin, yPosition);
-        yPosition += 5;
-      }
-
-      if (property.customerAge) {
-        doc.text(`Age: ${property.customerAge}`, margin, yPosition);
-        yPosition += 5;
-      }
-    }
-
-    // Field notes if available
-    if (property.fieldNotes) {
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'italic');
-      const noteLines = doc.splitTextToSize(
-        `Field Notes: ${property.fieldNotes}`,
-        pageWidth - 2 * margin - (includeQR ? 40 : 0)
-      );
-      doc.text(noteLines, margin, yPosition);
-      yPosition += noteLines.length * 5 + 5;
-      doc.setFont('helvetica', 'normal');
-    }
-
-    // Status
     doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Status: ${property.status}`, margin, yPosition);
-    yPosition += 5;
     doc.setFont('helvetica', 'normal');
+    doc.text(
+      `Page ${pageIndex + 1} of ${pages.length} | Generated: ${new Date().toLocaleDateString()}`,
+      margin,
+      20
+    );
 
-    // Document count if documents exist
-    if (property.documents && property.documents.length > 0) {
-      doc.text(
-        `Documents: ${property.documents.length} attached`,
-        margin,
-        yPosition
-      );
-      yPosition += 5;
+    if (usesTestData && pageIndex === 0) {
+      doc.setTextColor(200, 100, 100);
+      doc.setFontSize(8);
+      doc.text('*** CONTAINS TEST DATA ***', pageWidth - margin - 45, 20);
+      doc.setTextColor(0);
     }
 
-    // QR Code for mobile access
-    if (includeQR) {
-      try {
-        const mobileUrl = getCloudUrl(`/mobile/${property.id}`);
-        const qrDataUrl = await QRCode.toDataURL(mobileUrl, {
-          width: 100,
-          margin: 1,
-          errorCorrectionLevel: 'L',
-        });
+    // Draw 3x3 grid
+    const gridCols = 3;
+    const gridRows = 3;
+    const cellWidth = (pageWidth - 2 * margin) / gridCols;
+    const cellHeight = (pageHeight - headerHeight - margin) / gridRows;
 
-        // Add QR code to the right side
-        const qrSize = 30;
-        const xPosition = pageWidth - margin - qrSize;
-        const qrYPosition = yPosition - 20; // Position near the property info
+    for (let row = 0; row < gridRows; row++) {
+      for (let col = 0; col < gridCols; col++) {
+        const index = row * gridCols + col;
+        const property = pageProperties[index];
 
-        doc.addImage(qrDataUrl, 'PNG', xPosition, qrYPosition, qrSize, qrSize);
+        if (!property) continue;
 
-        // Add "Scan for mobile" text below QR
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        const qrLabel = 'Scan for mobile';
-        const qrLabelWidth =
-          (doc.getStringUnitWidth(qrLabel) * 8) / doc.internal.scaleFactor;
-        doc.text(
-          qrLabel,
-          xPosition + (qrSize - qrLabelWidth) / 2,
-          qrYPosition + qrSize + 4
+        const x = margin + col * cellWidth;
+        const y = headerHeight + row * cellHeight;
+
+        // Draw cell border
+        doc.setDrawColor(200, 200, 200);
+        doc.setLineWidth(0.5);
+        doc.rect(x, y, cellWidth, cellHeight);
+
+        // Property number (small in corner)
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`#${index + 1}`, x + 3, y + 6);
+
+        // Address (truncated if needed)
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        const maxWidth = cellWidth - 50;
+        const addressLines = doc.splitTextToSize(property.addressFull, maxWidth);
+        const displayAddress = addressLines[0] || property.addressFull;
+
+        // Add address
+        doc.text(displayAddress.substring(0, 45), x + 3, y + 12);
+
+        let yPos = y + 20;
+
+        // Customer info
+        if (includeCustomerData) {
+          doc.setFontSize(7);
+          doc.setFont('helvetica', 'normal');
+
+          if (property.customerName) {
+            doc.text(`Name: ${property.customerName}`, x + 3, yPos);
+            yPos += 4;
+          }
+
+          if (property.customerPhone) {
+            doc.text(`Phone: ${property.customerPhone}`, x + 3, yPos);
+            yPos += 4;
+          }
+        }
+
+        // Fillable-style AGE field (like IRS W-2)
+        const ageValue = property.customerAge?.toString() || '';
+        drawFieldBox(doc, x + 3, yPos, 25, 8, 'AGE:', ageValue);
+        yPos += 14;
+
+        // Fillable-style NOTES field (like IRS W-2)
+        const notesHeight = 28;
+        const notesWidth = cellWidth - 48;
+        drawNotesBox(
+          doc,
+          x + 3,
+          yPos,
+          notesWidth,
+          notesHeight,
+          'NOTES:',
+          property.fieldNotes || ''
         );
-      } catch (error) {
-        console.error('Failed to generate QR code:', error);
+
+        // QR Code for mobile access (right side of cell)
+        if (includeQR) {
+          try {
+            const mobileUrl = getCloudUrl(`/mobile/${property.id}`);
+            const qrDataUrl = await QRCode.toDataURL(mobileUrl, {
+              width: 80,
+              margin: 1,
+              errorCorrectionLevel: 'L',
+            });
+
+            const qrSize = 35;
+            const qrX = x + cellWidth - qrSize - 3;
+            const qrY = y + 3;
+
+            doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+
+            // "Scan" label below QR
+            doc.setFontSize(6);
+            doc.setFont('helvetica', 'normal');
+            const qrLabel = 'Scan me';
+            const qrLabelWidth = (doc.getStringUnitWidth(qrLabel) * 6) / doc.internal.scaleFactor;
+            doc.text(
+              qrLabel,
+              qrX + (qrSize - qrLabelWidth) / 2,
+              qrY + qrSize + 3
+            );
+          } catch (error) {
+            console.error('Failed to generate QR code:', error);
+          }
+        }
+
+        // Status badge at bottom
+        const statusColors: Record<string, [number, number, number]> = {
+          'PENDING_SCRAPE': [150, 150, 150],
+          'READY_FOR_FIELD': [59, 130, 246],
+          'VISITED': [147, 51, 234],
+          'READY_FOR_SUBMISSION': [245, 158, 11],
+          'COMPLETE': [34, 197, 94],
+          'FAILED': [239, 68, 68],
+        };
+
+        const [r, g, b] = statusColors[property.status] || [100, 100, 100];
+        doc.setFillColor(r, g, b);
+        doc.roundedRect(
+          x + 3,
+          y + cellHeight - 7,
+          28,
+          5,
+          1,
+          1,
+          'F'
+        );
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(6);
+        const statusText = property.status.replace(/_/g, ' ').toLowerCase();
+        doc.text(
+          statusText,
+          x + 4,
+          y + cellHeight - 4
+        );
+        doc.setTextColor(0);
       }
     }
-
-    yPosition += 10;
   }
 
   // Add page numbers footer
-  const totalPages = doc.internal.pages.length - 1; // jsPDF adds an extra page at index 0
+  const totalPages = doc.internal.pages.length - 1;
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
+    doc.setTextColor(150);
     doc.text(
-      `Page ${i} of ${totalPages}`,
+      `Page ${i} of ${totalPages} | Scan QR codes with mobile app`,
       pageWidth / 2,
-      pageHeight - 10,
+      pageHeight - 5,
       { align: 'center' }
     );
+    doc.setTextColor(0);
   }
 
   // Save PDF with timestamp
@@ -279,10 +366,6 @@ export async function generateRouteSheet(
 
 /**
  * Generate a PDF for a single property
- *
- * @param property - Property to generate PDF for
- * @param options - PDF generation options
- * @returns Promise that resolves when PDF is generated and saved
  */
 export async function generatePropertyPDF(
   property: Property,
@@ -290,3 +373,9 @@ export async function generatePropertyPDF(
 ): Promise<void> {
   return generateRouteSheet([property], options);
 }
+
+/**
+ * Export utilities
+ */
+export { calculateDistance, calculateTotalDistance, optimizeRoute } from './route-optimizer';
+export type { Property } from '../types';
