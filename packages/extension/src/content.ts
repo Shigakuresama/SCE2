@@ -4,6 +4,7 @@
 import { SCEHelper } from './lib/sce-helper.js';
 import type { AdditionalCustomerInfo } from './lib/sections/additional-customer.js';
 import type { ProjectInfo } from './lib/sections/project.js';
+import type { TradeAllyInfo } from './lib/sections/trade-ally.js';
 import { fetchZillowDataWithCache } from './lib/zillow-client.js';
 
 // ==========================================
@@ -41,6 +42,7 @@ interface ScrapeResult {
     customerEmail?: string;
     additionalInfo?: Partial<AdditionalCustomerInfo>;
     projectInfo?: Partial<ProjectInfo>;
+    tradeAllyInfo?: Partial<TradeAllyInfo>;
   };
   error?: string;
 }
@@ -297,6 +299,46 @@ async function extractProjectInfo(
 }
 
 // ==========================================
+// TRADE ALLY INFO EXTRACTION
+// ==========================================
+/**
+ * Extracts all 5 fields from the Trade Ally Information section.
+ * This section contains contractor/trade ally contact details.
+ *
+ * Returns a Partial<TradeAllyInfo> with any fields that were found.
+ */
+function extractTradeAllyInfo(): Partial<TradeAllyInfo> {
+  const result: Partial<TradeAllyInfo> = {};
+
+  // Helper to find input value by label text
+  const getInputValue = (labelText: string): string | undefined => {
+    const labels = Array.from(document.querySelectorAll('mat-form-field mat-label'));
+    const label = labels.find(l =>
+      l.textContent?.trim().toLowerCase().includes(labelText.toLowerCase())
+    );
+
+    if (!label) return undefined;
+
+    const formField = label.closest('mat-form-field');
+    const input = formField?.querySelector('input') as HTMLInputElement | null;
+
+    return input?.value || undefined;
+  };
+
+  // Extract all 5 fields
+  result.firstName = getInputValue('First Name');
+  result.lastName = getInputValue('Last Name');
+  result.title = getInputValue('Title');
+  result.phone = getInputValue('Phone') || getInputValue('Phone Number');
+  result.email = getInputValue('Email');
+
+  // Log extracted data for debugging
+  console.log('Extracted Trade Ally Info:', result);
+
+  return result;
+}
+
+// ==========================================
 // SCRAPE MODE
 // ==========================================
 async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResult> {
@@ -348,7 +390,11 @@ async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResu
       addressData.zipCode
     );
 
-    console.log('Scraped data:', { customerName, customerPhone, additionalInfo, projectInfo });
+    // 8. Extract Trade Ally Information
+    console.log('Extracting trade ally information...');
+    const tradeAllyInfo = extractTradeAllyInfo();
+
+    console.log('Scraped data:', { customerName, customerPhone, additionalInfo, projectInfo, tradeAllyInfo });
 
     return {
       success: true,
@@ -357,6 +403,7 @@ async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResu
         customerPhone,
         additionalInfo,
         projectInfo,
+        tradeAllyInfo,
       },
     };
   } catch (error) {
