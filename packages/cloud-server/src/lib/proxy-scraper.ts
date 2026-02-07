@@ -15,6 +15,7 @@
  */
 
 import { directScrapeZillow } from './zillow-scraper.js';
+import type { ZillowPropertyData } from './zillow-scraper.js';
 
 // Re-export the type
 export type { ZillowPropertyData } from './zillow-scraper.js';
