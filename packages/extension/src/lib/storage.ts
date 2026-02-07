@@ -1,6 +1,30 @@
 // SCE2 Extension - Generic Storage Utilities
 // Provides reusable functions for chrome.storage.sync operations
 
+// ==========================================
+// CONFIGURATION INTERFACE
+// ==========================================
+
+interface Config {
+  apiBaseUrl: string;
+  autoProcess: boolean;
+  autoStart: boolean;
+  pollInterval: number;
+  timeout: number;
+  maxConcurrent: number;
+  debugMode: boolean;
+}
+
+const DEFAULT_CONFIG: Config = {
+  apiBaseUrl: 'http://localhost:3333',
+  autoProcess: false,
+  autoStart: false,
+  pollInterval: 5000,
+  timeout: 30000,
+  maxConcurrent: 1,
+  debugMode: false,
+};
+
 /**
  * Generic function to load configuration from chrome.storage.sync
  * @param key - The storage key (or object with multiple keys and defaults)
@@ -101,3 +125,80 @@ export function onConfigChanged(
     chrome.storage.onChanged.removeListener(listener);
   };
 }
+
+// ==========================================
+// CONFIGURATION MANAGER (for backward compatibility)
+// ==========================================
+
+/**
+ * Get the current configuration with defaults applied
+ * This is a convenience function that calls loadConfig with DEFAULT_CONFIG
+ */
+export async function getConfig(): Promise<Config> {
+  return loadConfig<Config>(DEFAULT_CONFIG);
+}
+
+type ConfigChangeCallback = (config: Config) => void;
+
+/**
+ * Configuration manager object for advanced configuration handling
+ */
+export const configManager = {
+  /**
+   * Get the current configuration
+   */
+  get: getConfig,
+
+  /**
+   * Save configuration (partial or full)
+   */
+  set: async (config: Partial<Config>): Promise<void> => {
+    await saveConfig(config);
+  },
+
+  /**
+   * Reset configuration to defaults
+   */
+  reset: async (): Promise<void> => {
+    await saveConfig(DEFAULT_CONFIG);
+  },
+
+  /**
+   * Get default configuration values
+   */
+  defaults: DEFAULT_CONFIG,
+
+  /**
+   * Subscribe to configuration changes
+   * @param callback - Function to call when configuration changes
+   * @returns Unsubscribe function
+   */
+  subscribe(callback: ConfigChangeCallback): () => void {
+    const listener = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: string
+    ) => {
+      if (areaName === 'sync') {
+        // Check if any config keys changed
+        const configKeys = Object.keys(DEFAULT_CONFIG);
+        const hasConfigChange = configKeys.some(key => changes[key]);
+
+        if (hasConfigChange) {
+          // Fetch and callback with updated config
+          getConfig().then(callback);
+        }
+      }
+    };
+
+    chrome.storage.onChanged.addListener(listener);
+
+    // Return unsubscribe function
+    return () => {
+      chrome.storage.onChanged.removeListener(listener);
+    };
+  },
+};
+
+// Export types for use in other modules
+export type { Config };
+

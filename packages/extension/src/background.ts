@@ -370,11 +370,17 @@ async function markJobFailed(propertyId: number, type: string, reason: string) {
 }
 
 async function waitForTabLoad(tabId: number): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
+    let isResolved = false;
+
     const listener = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
       if (updatedTabId === tabId && changeInfo.status === 'complete') {
         chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
+        if (!isResolved) {
+          isResolved = true;
+          clearTimeout(timeoutId);
+          resolve();
+        }
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
@@ -382,15 +388,11 @@ async function waitForTabLoad(tabId: number): Promise<void> {
     // Timeout after 30 seconds to prevent hanging
     const timeoutId = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error('Tab load timeout'));
+      if (!isResolved) {
+        isResolved = true;
+        reject(new Error('Tab load timeout'));
+      }
     }, 30000);
-
-    // Clear timeout if resolved
-    const originalResolve = resolve;
-    resolve = () => {
-      clearTimeout(timeoutId);
-      originalResolve();
-    } as any;
   });
 }
 
