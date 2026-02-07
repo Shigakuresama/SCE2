@@ -5,7 +5,27 @@ import { SCEHelper } from './lib/sce-helper.js';
 import type { AdditionalCustomerInfo } from './lib/sections/additional-customer.js';
 import type { ProjectInfo } from './lib/sections/project.js';
 import type { TradeAllyInfo } from './lib/sections/trade-ally.js';
+import type { AssessmentInfo } from './lib/sections/assessment.js';
+import type { HouseholdInfo } from './lib/sections/household.js';
+import type { EnrollmentInfo } from './lib/sections/enrollment.js';
+import type { EquipmentInfo } from './lib/sections/equipment.js';
+import type { BasicEnrollmentInfo } from './lib/sections/basic-enrollment.js';
+import type { BonusInfo } from './lib/sections/bonus.js';
+import type { TermsInfo } from './lib/sections/terms.js';
+import type { CommentsInfo } from './lib/sections/comments.js';
+import type { StatusInfo } from './lib/sections/status.js';
 import { fetchZillowDataWithCache } from './lib/zillow-client.js';
+import {
+  extractAssessmentInfo,
+  extractHouseholdInfo,
+  extractEnrollmentInfo,
+  extractEquipmentInfo,
+  extractBasicEnrollmentInfo,
+  extractBonusInfo,
+  extractTermsInfo,
+  extractCommentsInfo,
+  extractStatusInfo,
+} from './lib/sections/sections-extractor.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -40,9 +60,19 @@ interface ScrapeResult {
     customerName: string;
     customerPhone: string;
     customerEmail?: string;
+    // All form sections
     additionalInfo?: Partial<AdditionalCustomerInfo>;
     projectInfo?: Partial<ProjectInfo>;
     tradeAllyInfo?: Partial<TradeAllyInfo>;
+    assessmentInfo?: Partial<AssessmentInfo>;
+    householdInfo?: Partial<HouseholdInfo>;
+    enrollmentInfo?: Partial<EnrollmentInfo>;
+    equipmentInfo?: Partial<EquipmentInfo>;
+    basicEnrollmentInfo?: Partial<BasicEnrollmentInfo>;
+    bonusInfo?: Partial<BonusInfo>;
+    termsInfo?: Partial<TermsInfo>;
+    commentsInfo?: Partial<CommentsInfo>;
+    statusInfo?: Partial<StatusInfo>;
   };
   error?: string;
 }
@@ -394,7 +424,34 @@ async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResu
     console.log('Extracting trade ally information...');
     const tradeAllyInfo = extractTradeAllyInfo();
 
-    console.log('Scraped data:', { customerName, customerPhone, additionalInfo, projectInfo, tradeAllyInfo });
+    // 9. Extract all remaining sections
+    console.log('Extracting all remaining sections...');
+    const assessmentInfo = extractAssessmentInfo();
+    const householdInfo = extractHouseholdInfo();
+    const enrollmentInfo = extractEnrollmentInfo();
+    const equipmentInfo = extractEquipmentInfo();
+    const basicEnrollmentInfo = extractBasicEnrollmentInfo();
+    const bonusInfo = extractBonusInfo();
+    const termsInfo = extractTermsInfo();
+    const commentsInfo = extractCommentsInfo();
+    const statusInfo = extractStatusInfo();
+
+    console.log('Scraped data:', {
+      customerName,
+      customerPhone,
+      additionalInfo,
+      projectInfo,
+      tradeAllyInfo,
+      assessmentInfo,
+      householdInfo,
+      enrollmentInfo,
+      equipmentInfo,
+      basicEnrollmentInfo,
+      bonusInfo,
+      termsInfo,
+      commentsInfo,
+      statusInfo,
+    });
 
     return {
       success: true,
@@ -404,6 +461,15 @@ async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResu
         additionalInfo,
         projectInfo,
         tradeAllyInfo,
+        assessmentInfo,
+        householdInfo,
+        enrollmentInfo,
+        equipmentInfo,
+        basicEnrollmentInfo,
+        bonusInfo,
+        termsInfo,
+        commentsInfo,
+        statusInfo,
       },
     };
   } catch (error) {
