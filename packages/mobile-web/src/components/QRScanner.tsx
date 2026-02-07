@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ScanQRCode } from 'react-qr-barcode-scanner';
+import BarcodeScanner from 'react-qr-barcode-scanner';
+import type { Result } from '@zxing/library';
 
 interface QRScannerProps {
   onScan: (propertyId: string) => void;
@@ -9,34 +10,41 @@ interface QRScannerProps {
 export const QRScanner: React.FC<QRScannerProps> = ({ onScan, onError }) => {
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
 
-  const handleScan = (data: string) => {
-    try {
-      const url = new URL(data);
-      const propertyId = url.searchParams.get('propertyId');
-      if (propertyId) {
-        onScan(propertyId);
-      } else {
-        onError?.('No propertyId found in QR code');
+  const handleUpdate = (error: unknown, result?: Result) => {
+    if (error) {
+      console.warn('QR scan error:', error);
+      return;
+    }
+
+    if (result) {
+      const data = result.getText();
+      try {
+        const url = new URL(data);
+        const propertyId = url.searchParams.get('propertyId');
+        if (propertyId) {
+          onScan(propertyId);
+        } else {
+          onError?.('No propertyId found in QR code');
+        }
+      } catch (e) {
+        onError?.('Invalid QR code format');
       }
-    } catch (e) {
-      onError?.('Invalid QR code format');
     }
   };
 
-  const handleError = (error: any) => {
-    console.warn('QR scan error:', error);
-    // Non-fatal, just log it
+  const handleError = (error: string | DOMException) => {
+    console.warn('QR camera error:', error);
+    onError?.(String(error));
   };
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <ScanQRCode
-        onScan={handleScan}
+      <BarcodeScanner
+        onUpdate={handleUpdate}
         onError={handleError}
-        style={{ width: '100%', height: '100%' }}
-        videoConstraints={{
-          facingMode: facingMode,
-        }}
+        width="100%"
+        height="100%"
+        facingMode={facingMode}
       />
       <button
         onClick={() => setFacingMode(facingMode === 'environment' ? 'user' : 'environment')}
@@ -52,6 +60,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ onScan, onError }) => {
           fontSize: '16px',
           cursor: 'pointer',
           boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+          zIndex: 10,
         }}
       >
         Flip Camera

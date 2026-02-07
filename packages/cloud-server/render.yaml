@@ -16,7 +16,7 @@ services:
           name: sce2-db
           property: connectionString
       - key: ALLOWED_ORIGINS
-        value: https://sce2-webapp.onrender.com,https://sce2-mobile.onrender.com
+        value: http://localhost:5173,http://localhost:5174,chrome-extension://*,https://sce2-webap.onrender.com
       - key: SCRAPER_API_KEY
         sync: false
 
