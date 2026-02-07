@@ -16,6 +16,7 @@
 
 import { directScrapeZillow } from './zillow-scraper.js';
 import type { ZillowPropertyData } from './zillow-scraper.js';
+import { retryWithBackoff } from './retry.js';
 
 // Re-export the type
 export type { ZillowPropertyData } from './zillow-scraper.js';
@@ -142,33 +143,40 @@ async function scrapeWithScraperAPI(
   apiKey: string,
   zillowUrl: string
 ): Promise<Partial<ZillowPropertyData>> {
-  // ScraperAPI format: http://api.scraperapi.com?api_key=XXX&url=URL
-  const proxyUrl = `http://api.scraperapi.com?api_key=${apiKey}&url=${encodeURIComponent(zillowUrl)}`;
+  return retryWithBackoff(async () => {
+    // ScraperAPI format: http://api.scraperapi.com?api_key=XXX&url=URL
+    const proxyUrl = `http://api.scraperapi.com?api_key=${apiKey}&url=${encodeURIComponent(zillowUrl)}`;
 
-  console.log('[ScraperAPI] Fetching:', zillowUrl);
+    console.log('[ScraperAPI] Fetching:', zillowUrl);
 
-  const response = await fetch(proxyUrl);
+    const response = await fetch(proxyUrl);
 
-  if (!response.ok) {
-    console.error('[ScraperAPI] HTTP error:', response.status);
-    throw new Error(`ScraperAPI error: ${response.status} ${response.statusText}`);
-  }
+    if (!response.ok) {
+      console.error('[ScraperAPI] HTTP error:', response.status);
+      throw new Error(`ScraperAPI error: ${response.status} ${response.statusText}`);
+    }
 
-  const html = await response.text();
-  console.log('[ScraperAPI] Got HTML, length:', html.length, 'contains __NEXT_DATA__:', html.includes('__NEXT_DATA__'));
+    const html = await response.text();
+    console.log('[ScraperAPI] Got HTML, length:', html.length, 'contains __NEXT_DATA__:', html.includes('__NEXT_DATA__'));
 
-  const result = parseZillowHtml(html);
+    const result = parseZillowHtml(html);
 
-  // If no data found, use fallback defaults
-  if (Object.keys(result).length === 0) {
-    console.warn('[ScraperAPI] No property data found, using fallback defaults');
-    return {
-      sqFt: 1200,
-      yearBuilt: 1970,
-    };
-  }
+    // If no data found, use fallback defaults
+    if (Object.keys(result).length === 0) {
+      console.warn('[ScraperAPI] No property data found, using fallback defaults');
+      return {
+        sqFt: 1200,
+        yearBuilt: 1970,
+      };
+    }
 
-  return result;
+    return result;
+  }, {
+    maxAttempts: 3,
+    initialDelayMs: 1000,
+    maxDelayMs: 5000,
+    backoffMultiplier: 2,
+  });
 }
 
 /**
@@ -179,28 +187,35 @@ async function scrapeWithZenRows(
   apiKey: string,
   zillowUrl: string
 ): Promise<Partial<ZillowPropertyData>> {
-  // ZenRows format: https://api.zenrows.com/v1/
-  const proxyUrl = 'https://api.zenrows.com/v1/';
+  return retryWithBackoff(async () => {
+    // ZenRows format: https://api.zenrows.com/v1/
+    const proxyUrl = 'https://api.zenrows.com/v1/';
 
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      apikey: apiKey,
-      url: zillowUrl,
-      js_render: true,
-      premium_proxy: true,
-    }),
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        apikey: apiKey,
+        url: zillowUrl,
+        js_render: true,
+        premium_proxy: true,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`ZenRows error: ${response.status} ${response.statusText}`);
+    }
+
+    const html = await response.text();
+    return parseZillowHtml(html);
+  }, {
+    maxAttempts: 3,
+    initialDelayMs: 1000,
+    maxDelayMs: 5000,
+    backoffMultiplier: 2,
   });
-
-  if (!response.ok) {
-    throw new Error(`ZenRows error: ${response.status} ${response.statusText}`);
-  }
-
-  const html = await response.text();
-  return parseZillowHtml(html);
 }
 
 /**
@@ -213,41 +228,48 @@ async function scrapeWithRapidAPI(
   address: string,
   zipCode: string
 ): Promise<Partial<ZillowPropertyData>> {
-  // Using the Zillow Search Results API from RapidAPI
-  const apiUrl = 'https://zillow-scraper.p.rapidapi.com/search';
+  return retryWithBackoff(async () => {
+    // Using the Zillow Search Results API from RapidAPI
+    const apiUrl = 'https://zillow-scraper.p.rapidapi.com/search';
 
-  const response = await fetch(
-    `${apiUrl}?address=${encodeURIComponent(address)}&zip_code=${zipCode}`,
-    {
-      headers: {
-        'X-RapidAPI-Key': apiKey,
-        'X-RapidAPI-Host': 'zillow-scraper.p.rapidapi.com',
-      },
+    const response = await fetch(
+      `${apiUrl}?address=${encodeURIComponent(address)}&zip_code=${zipCode}`,
+      {
+        headers: {
+          'X-RapidAPI-Key': apiKey,
+          'X-RapidAPI-Host': 'zillow-scraper.p.rapidapi.com',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`RapidAPI error: ${response.status} ${response.statusText}`);
     }
-  );
 
-  if (!response.ok) {
-    throw new Error(`RapidAPI error: ${response.status} ${response.statusText}`);
-  }
+    const json: any = await response.json();
 
-  const json: any = await response.json();
+    // Parse RapidAPI response format
+    if (json.data && json.data.length > 0) {
+      const property = json.data[0];
+      return {
+        sqFt: property.livingArea || property.area,
+        yearBuilt: property.yearBuilt,
+        lotSize: property.lotAreaValue,
+        bedrooms: property.bedrooms,
+        bathrooms: property.bathrooms,
+        propertyType: property.homeType,
+        zestimate: property.zestimate,
+        address: property.address,
+      };
+    }
 
-  // Parse RapidAPI response format
-  if (json.data && json.data.length > 0) {
-    const property = json.data[0];
-    return {
-      sqFt: property.livingArea || property.area,
-      yearBuilt: property.yearBuilt,
-      lotSize: property.lotAreaValue,
-      bedrooms: property.bedrooms,
-      bathrooms: property.bathrooms,
-      propertyType: property.homeType,
-      zestimate: property.zestimate,
-      address: property.address,
-    };
-  }
-
-  return {};
+    return {};
+  }, {
+    maxAttempts: 3,
+    initialDelayMs: 1000,
+    maxDelayMs: 5000,
+    backoffMultiplier: 2,
+  });
 }
 
 /**
