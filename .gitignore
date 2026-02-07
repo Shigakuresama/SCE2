@@ -69,6 +69,11 @@ coverage/
 
 # Misc
 .cache/
+*.pdf
 
 /generated/prisma
 .worktrees/
+
+# Source maps (should only be in dist/)
+*.js.map
+*.d.ts.map

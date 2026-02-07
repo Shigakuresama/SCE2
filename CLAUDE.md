@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SCE2 is a **cloud-hybrid rebate automation platform** that unifies the fragmented SCE v1 tools into a cohesive system with centralized database, API, and mobile support.
+SCE2 is a **cloud-hybrid rebate automation platform** that unifies the fragmented SCE v1 tools into a cohesive system with centralized database, API, and mobile support. It maintains full compatibility with SCE1's form-filling logic while adding modern architecture and mobile support.
 
 ### Architecture Components
 
-1. **Cloud Server** (`packages/cloud-server/`) - Express API with Prisma ORM
-2. **Extension** (`packages/extension/`) - Chrome MV3 extension (scraper + submitter)
-3. **Webapp** (`packages/webapp/`) - React desktop app (route planning, PDF generation)
-4. **Mobile Web** (`packages/mobile-web/`) - React mobile app (field data collection)
+1. **Cloud Server** (`packages/cloud-server/`) - Express API with Prisma ORM, Zillow scraping with proxy
+2. **Extension** (`packages/extension/`) - Chrome MV3 extension with SCE1 compatibility layer
+3. **Webapp** (`packages/webapp/`) - React desktop app (map-based address selection, PDF generation)
+4. **Mobile Web** (`packages/mobile-web/`) - React mobile app (field data collection, photo capture)
 
 ### Key Differences from SCE (v1)
 
@@ -21,8 +21,19 @@ SCE2 is a **cloud-hybrid rebate automation platform** that unifies the fragmente
 | **API** | Proxy server on :3000 (CORS bypass) | Full REST API on :3333 |
 | **Mobile** | None | Mobile web interface with photo capture |
 | **Queue System** | Manual | Automated scrape/submit queues |
+| **Zillow Scraping** | Extension-based direct scraping | Server-side with ScraperAPI proxy |
+| **SCE1 Compatibility** | N/A (original) | Complete compatibility layer with all defaults |
 | **Deployment** | Local only | Local-first, one-config cloud migration |
 | **PDF** | Client-side jsPDF | Server-side + QR code generation |
+
+### Recent Major Updates (Feb 2025)
+
+✅ **SCE1 Full Compatibility** - All default values, ZIP+4 extraction, email generation
+✅ **Proxy-Based Zillow Scraping** - ScraperAPI integration bypasses 403 Forbidden
+✅ **Custom Map Drawing Tools** - Rectangle/circle with click-move-click pattern
+✅ **Address Search** - Nominatim API with map pinning
+✅ **Property Deletion** - Fixed route ordering, added UI controls
+✅ **Comprehensive Options Page** - 980 lines, 18 tabs matching SCE1
 
 ## Common Commands
 
@@ -64,6 +75,12 @@ npm run package             # Build and create ZIP for distribution
 4. Click "Load unpacked"
 5. Select `packages/extension/dist/`
 
+**Testing Zillow Scraping:**
+```bash
+# From project root
+curl "http://localhost:3333/api/zillow/scrape?address=1909%20W%20Martha%20Ln&zipCode=92706"
+```
+
 ### Webapp / Mobile
 
 ```bash
@@ -81,6 +98,7 @@ npm run preview             # Preview production build
 # Edit prisma/schema.prisma
 cd packages/cloud-server
 npm run db:push             # Apply changes to dev database
+npm run db:generate         # Regenerate Prisma client
 ```
 
 **For production (when using PostgreSQL):**
@@ -97,7 +115,42 @@ npm run db:migrate          # Apply migration
 3. Add validation with `express-validator` if needed
 4. Test with Postman or curl
 
+**Example - Zillow Scrape Endpoint:**
+```typescript
+// packages/cloud-server/src/routes/zillow.ts
+import { scrapeZillowData } from '../lib/zillow.js';
+
+zillowRoutes.get('/scrape', asyncHandler(async (req, res) => {
+  const { address, zipCode } = req.query;
+  const propertyData = await scrapeZillowData(address as string, zipCode as string);
+  res.json({ success: true, data: propertyData });
+}));
+```
+
 ### 3. Extension Development
+
+**SCE1 Compatibility Layer:**
+All SCE1 defaults and logic are in `src/lib/sce1-logic.ts`:
+
+```typescript
+import {
+  SCE1_DEFAULTS,
+  generateEmailFromName,
+  getPlus4Zip,
+  extractPlus4FromMailingZip
+} from './lib/sce1-logic.js';
+
+// Get default values
+const defaults = SCE1_DEFAULTS;
+
+// Generate email from customer name (80% Gmail, 20% Yahoo)
+const email = generateEmailFromName('Sergio', 'Correa');
+// Returns: sergio.correa123@gmail.com (or similar)
+
+// Extract ZIP+4 with 4-level fallback
+const plus4 = getPlus4Zip('', '92706');
+// Returns: '2706' (last 4 digits)
+```
 
 **Content Script Flow:**
 ```typescript
@@ -111,8 +164,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // 2. Interact with SCE website
 async function performScrape(data) {
-  // Fill forms, extract data
-  return { success: true, data: { customerName, customerPhone } };
+  // Fetch Zillow data via API
+  const zillowData = await fetchZillowDataWithCache(data.addressFull, data.zipCode);
+
+  // Fill forms with Zillow data, customer data, and SCE1 defaults
+  fillForms({
+    ...SCE1_DEFAULTS,
+    ...zillowData,
+    ...data
+  });
+
+  return { success: true, data: extractedData };
 }
 ```
 
@@ -127,7 +189,45 @@ setInterval(async () => {
 }, 5000);
 ```
 
-### 4. Debugging
+### 4. Map Drawing Tools (Webapp)
+
+**Custom Drag-to-Draw Implementation:**
+The webapp uses a custom click-move-click pattern for drawing shapes (replacing leaflet-draw):
+
+```typescript
+// Rectangle drawing in MapLayout.tsx
+const [rectangleStart, setRectangleStart] = useState<L.LatLng | null>(null);
+
+const handleRectangleClick = (e: L.LeafletMouseEvent) => {
+  if (!rectangleStart) {
+    // First click - set start point
+    setRectangleStart(e.latlng);
+    L.circleMarker(e.latlng, { radius: 5 }).addTo(map);
+  } else {
+    // Second click - complete rectangle
+    const bounds = L.latLngBounds(rectangleStart, e.latlng);
+    L.rectangle(bounds, { color: '#2196F3' }).addTo(map);
+    onDrawComplete(bounds);
+    setRectangleStart(null);
+  }
+};
+```
+
+**Address Search:**
+```typescript
+// Search and pin address on map
+const response = await fetch(
+  `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`
+);
+const data = await response.json();
+if (data && data.length > 0) {
+  const { lat, lon } = data[0];
+  map.setView([lat, lon], 17);
+  L.marker([lat, lon]).addTo(map);
+}
+```
+
+### 5. Debugging
 
 **Cloud Server:**
 - Logs go to `logs/combined.log` and `logs/error.log`
@@ -138,6 +238,7 @@ setInterval(async () => {
 - Chrome extension background: `chrome://extensions/` → "Service worker" link
 - Content script: Right-click SCE website → "Inspect"
 - Check `chrome.storage.sync` for config: DevTools → Application → Storage
+- Options page: Right-click extension icon → Options
 
 **Common Issues:**
 
@@ -147,6 +248,8 @@ setInterval(async () => {
 | Database locked | Stop all server processes, delete `*.sqlite-journal` files |
 | CORS errors | Add origin to `ALLOWED_ORIGINS` in `.env` |
 | Queue not processing | Check extension background script console for errors |
+| Zillow 403 Forbidden | ScraperAPI automatically retries with proxy (configured in .env) |
+| Map drawing not working | Use click-move-click pattern, not drag |
 
 ## Architecture Patterns
 
@@ -182,6 +285,25 @@ app.post('/api/properties',
 );
 ```
 
+### Zillow Scraping with Proxy
+
+**Server-side (cloud-server):**
+```typescript
+import { scrapeZillowData } from './lib/zillow.js';
+
+// Automatically uses ScraperAPI proxy if direct scraping fails
+const propertyData = await scrapeZillowData(address, zipCode);
+// Returns: { sqFt: 1200, yearBuilt: 1970 } (with fallbacks)
+```
+
+**Client-side (extension):**
+```typescript
+import { fetchZillowDataWithCache } from './lib/zillow-client.js';
+
+// Cached for 24 hours
+const zillowData = await fetchZillowDataWithCache(address, zipCode);
+```
+
 ### Extension Message Passing
 
 **Background → Content:**
@@ -213,6 +335,82 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 ```
 
+### SCE1 Form Filling
+
+**Default Values:**
+```typescript
+export const SCE1_DEFAULTS = {
+  // Customer Information
+  firstName: 'Sergio',
+  lastName: 'Correa',
+  phone: '7143912727',
+  email: 'scm.energysavings@gmail.com',
+
+  // Demographics
+  primaryApplicantAge: '44',
+  ethnicity: 'Hispanic/Latino',
+  veteran: 'No',
+  nativeAmerican: 'No',
+  disabled: 'No',
+
+  // Project Information defaults
+  defaultSqFt: '1200',
+  defaultYearBuilt: '1970',
+  spaceOrUnit: '1',
+
+  // Trade Ally Information (CONTRACTOR fields)
+  projectFirstName: 'Sergio',
+  projectLastName: 'Correa',
+  projectPhone: '7143912727',
+  projectEmail: 'scm.energysavings@gmail.com',
+  // ... 70+ more fields
+};
+```
+
+**ZIP+4 Extraction (4-level fallback):**
+```typescript
+export function getPlus4Zip(configPlus4: string, regularZip: string): string {
+  // Priority 1: Config override
+  if (configPlus4) return configPlus4;
+
+  // Priority 2: Extracted from mailing zip (stored globally)
+  if (window.scePlus4Zip) return window.scePlus4Zip;
+
+  // Priority 3: Extract from mailing zip now
+  const extracted = extractPlus4FromMailingZip();
+  if (extracted) return extracted;
+
+  // Priority 4: Search readonly fields
+  const readonlyPlus4 = findPlus4InReadOnlyFields();
+  if (readonlyPlus4) return readonlyPlus4;
+
+  // Priority 5: Last 4 digits of regular zip
+  if (regularZip && regularZip.length === 5) {
+    return regularZip.slice(-4);
+  }
+
+  return '';
+}
+```
+
+**Email Generation:**
+```typescript
+export function generateEmailFromName(firstName: string, lastName: string): string {
+  const digits = Math.floor(Math.random() * 900) + 100;
+  const isGmail = Math.random() < 0.8;
+
+  const patterns = isGmail
+    ? [
+        `${firstName.toLowerCase()}.${lastName.toLowerCase()}${digits}@gmail.com`,
+        `${lastName.toLowerCase()}.${firstName.toLowerCase()}${digits}@gmail.com`,
+        `${firstName.toLowerCase()}${lastName.toLowerCase()}${digits}@gmail.com`,
+      ]
+    : [`${firstName.toLowerCase()}_${lastName.toLowerCase()}${digits}@yahoo.com`];
+
+  return patterns[Math.floor(Math.random() * patterns.length)];
+}
+```
+
 ### File Upload Handling
 
 **Client-side (webapp/extension):**
@@ -241,37 +439,77 @@ import multer from 'multer';
 
 ### Cloud Server
 
+**Core:**
 - `src/index.ts` - Server entry point, middleware setup
 - `src/lib/database.ts` - Prisma singleton, connection management
 - `src/lib/logger.ts` - Winston logging configuration
 - `src/lib/config.ts` - Environment variable config with defaults
 - `prisma/schema.prisma` - Database schema (source of truth!)
-- `src/routes/` - API route handlers
-  - `index.ts` - Route registration and health check
-  - `properties.ts` - Property CRUD operations
-  - `queue.ts` - Scrape/submit queue endpoints
-  - `uploads.ts` - Document upload handling
-  - `routes.ts` - Route management (planning groups)
+
+**Zillow Scraping:**
+- `src/lib/zillow.ts` - Main Zillow interface with caching
+- `src/lib/zillow-scraper.ts` - Direct Zillow scraping
+- `src/lib/proxy-scraper.ts` - ScraperAPI proxy integration
+- `src/lib/assessor-scraper.ts` - County assessor scraping (future)
+- `src/routes/zillow.ts` - GET /api/zillow/scrape endpoint
+
+**Routes:**
+- `src/routes/index.ts` - Route registration and health check
+- `src/routes/properties.ts` - Property CRUD operations
+- `src/routes/queue.ts` - Scrape/submit queue endpoints
+- `src/routes/uploads.ts` - Document upload handling
+- `src/routes/routes.ts` - Route management (planning groups)
 - `src/middleware/errorHandler.ts` - Global error handling, async wrapper
 
 ### Extension
 
+**Core:**
 - `src/background.ts` - Service worker, queue polling, orchestration
 - `src/content.ts` - SCE website interaction (form filling, data extraction)
-- `src/lib/sce-helper.ts` - Reusable form interaction methods
-- `src/lib/utils.ts` - Utility functions
 - `manifest.json` - Extension configuration (not in src/)
+
+**SCE1 Compatibility:**
+- `src/lib/sce1-logic.ts` - **Complete SCE1 compatibility layer**
+  - All 70+ default values
+  - ZIP+4 extraction with 4-level fallback
+  - Email generation from customer names
+  - All field mappings
+
+**Helpers:**
+- `src/lib/sce-helper.ts` - Reusable form interaction methods
+- `src/lib/zillow-client.ts` - Fetches Zillow data via server API
+- `src/lib/utils.ts` - Utility functions
+- `src/lib/storage.ts` - Chrome storage operations
+- `src/lib/selectors.ts` - Angular Material selectors
+- `src/lib/error-handler.ts` - Extension error handling
+
+**Configuration:**
+- `options.html` - **980-line options page** (18 tabs) with all SCE1 defaults
+- `popup.html` - Quick action popup
+
+**Tests:**
 - `tests/integration.test.ts` - API integration tests
 
 ### Webapp
 
+**Core:**
 - `src/App.tsx` - React Router setup, main routes
 - `src/contexts/AppContext.tsx` - Global state management
 - `src/pages/` - Page components (Dashboard, Properties, Queue, Settings)
-- `src/components/` - Reusable components
-  - `MapLayout.tsx` - Leaflet map for address selection
-  - `PDFGenerator.tsx` - PDF generation with QR codes
-  - `QueueStatus.tsx` - Real-time queue monitoring
+
+**Components:**
+- `src/components/MapLayout.tsx` - **Leaflet map with custom drawing tools**
+  - Rectangle/circle drawing (click-move-click pattern)
+  - Address search with Nominatim API
+  - Overpass API address fetching
+- `src/components/PDFGenerator.tsx` - PDF generation with QR codes
+- `src/components/PropertyCard.tsx` - Property display with delete button
+- `src/components/PropertyList.tsx` - Property list with filtering
+- `src/components/QueueStatus.tsx` - Real-time queue monitoring
+
+**Utilities:**
+- `src/lib/api.ts` - API client functions
+- `src/lib/overpass.ts` - Overpass API integration (fixed bounding box format)
 - `vite.config.ts` - Vite bundler configuration
 
 ### Mobile Web
@@ -286,12 +524,20 @@ import multer from 'multer';
 ```bash
 DATABASE_URL="file:./dev.sqlite"
 BASE_URL="http://localhost:3333"
+PORT=3333
+NODE_ENV=development
+```
+
+**Zillow Scraping (Proxy):**
+```bash
+SCRAPER_API_KEY=fc3e6f236d5ccc030835c54fe6beeea1  # ScraperAPI key
 ```
 
 **Production (Cloud):**
 ```bash
 DATABASE_URL="postgresql://user:pass@host:5432/sce_db"
 BASE_URL="https://your-domain.com"
+NODE_ENV=production
 ```
 
 **No code changes required** - just update `.env`!
@@ -355,7 +601,27 @@ npm test                       # Run integration tests
 
 ### Test File Locations
 - `packages/extension/tests/integration.test.ts` - API integration tests
+- `packages/webapp/tests/test-pdf-generation.ts` - PDF generation test script
 - No tests exist yet for cloud-server (placeholder returns exit 0)
+
+### End-to-End Testing
+
+See `docs/TEST_REPORT.md` for comprehensive test results (all 18/18 tests passing).
+
+## Documentation
+
+**Setup & Configuration:**
+- `docs/SETUP_COMPLETE.md` - Complete setup guide
+- `docs/PROXY_SETUP_QUICK.md` - Quick proxy setup
+- `docs/TEST_REPORT.md` - End-to-end test results
+
+**Architectural:**
+- `README.md` - Project overview and quick start
+- `STACK.md` - Technology stack
+- `SCE-v1-WISDOM.md` - Lessons learned from SCE v1
+
+**Archived:**
+- `docs/archive/` - Historical documentation (migration plans, etc.)
 
 ## Deployment
 
@@ -373,6 +639,7 @@ npm test                       # Run integration tests
 DATABASE_URL="postgresql://..."
 BASE_URL="https://..."
 NODE_ENV=production
+SCRAPER_API_KEY="your-api-key"
 ```
 
 **Step 3: Deploy server**
@@ -400,7 +667,7 @@ npm run db:generate
 ```
 
 ### Extension not connecting to server
-1. Check server is running: `curl http://localhost:3333/health`
+1. Check server is running: `curl http://localhost:3333/api/health`
 2. Check CORS origins in `.env`
 3. Check extension background console for errors
 
@@ -412,6 +679,17 @@ lsof -i :3333 | awk 'NR>1 {print $2}' | xargs kill
 # Delete journal files
 rm packages/cloud-server/*.sqlite-journal
 ```
+
+### Zillow scraping returning 403
+- ScraperAPI automatically retries with proxy
+- Check API key is valid: `SCRAPER_API_KEY` in `.env`
+- Free tier: 1000 requests/month
+
+### Map drawing not working
+- Use click-move-click pattern, not drag
+- First click sets start point
+- Second click completes shape
+- Check browser console for errors
 
 ## Important Gotchas
 
@@ -430,6 +708,16 @@ npm run build:copy     # Copy manifest.json, HTML, icons, lib/*.js
 npm run build:compile  # Compile src/*.ts → dist/*.js
 ```
 **Common mistake:** Editing files in `dist/` instead of `src/`. Always edit source files.
+
+### Overpass API Bounding Box Format
+When fetching addresses within bounds, the format is:
+```typescript
+// CORRECT: (south, west, north, east)
+const bbox = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
+
+// WRONG: (west, south, east, north)
+// This causes 400 Bad Request
+```
 
 ### CORS Configuration
 When adding new client origins, update `.env`:
@@ -461,3 +749,77 @@ No database-level validation - validate in application code.
 - Files stored in `packages/cloud-server/uploads/`
 - Multer middleware handles multipart form data
 - Document records track metadata (type, filename, size)
+
+### Route Ordering
+Specific routes must come before parameterized routes:
+```typescript
+// CORRECT ORDER:
+propertyRoutes.delete('/all', ...);        // Must be first
+propertyRoutes.delete('/:id', ...);        // Then parameterized
+
+// WRONG ORDER:
+propertyRoutes.delete('/:id', ...);        // Matches "all" as an ID!
+propertyRoutes.delete('/all', ...);        // Never reached
+```
+
+## Codebase Organization
+
+```
+SCE2/
+├── docs/                          # Documentation
+│   ├── SETUP_COMPLETE.md          # Complete setup guide
+│   ├── PROXY_SETUP_QUICK.md       # Proxy setup quick reference
+│   ├── TEST_REPORT.md             # End-to-end test results
+│   ├── RECOMMENDED-MCP-AND-SKILLS.md
+│   └── archive/                   # Historical docs
+├── packages/
+│   ├── cloud-server/              # Express API
+│   │   ├── src/
+│   │   │   ├── lib/               # Zillow scraping, database, etc.
+│   │   │   ├── routes/            # API endpoints
+│   │   │   └── middleware/        # Error handling, etc.
+│   │   ├── prisma/                # Database schema
+│   │   └── uploads/               # File uploads (gitignored)
+│   ├── extension/                 # Chrome extension
+│   │   ├── src/                   # TypeScript source
+│   │   │   ├── lib/
+│   │   │   │   ├── sce1-logic.ts  # SCE1 compatibility
+│   │   │   │   ├── zillow-client.ts
+│   │   │   │   └── ...
+│   │   │   ├── background.ts
+│   │   │   └── content.ts
+│   │   ├── dist/                  # Build output (gitignored)
+│   │   ├── options.html           # 980-line config page
+│   │   ├── manifest.json
+│   │   └── icons/
+│   ├── webapp/                    # React desktop app
+│   │   ├── src/
+│   │   │   ├── components/        # MapLayout, PDFGenerator, etc.
+│   │   │   ├── pages/             # Dashboard, Properties, etc.
+│   │   │   └── lib/               # API client, Overpass, etc.
+│   │   └── tests/                 # PDF generation test
+│   └── mobile-web/                # React mobile app
+├── .gitignore                     # Excludes dist/, *.pdf, etc.
+├── CLAUDE.md                      # This file
+├── README.md                      # Project overview
+└── package.json                   # Root workspace config
+```
+
+## File Structure Best Practices
+
+**Source vs Build Artifacts:**
+- Source code goes in `src/` directories
+- Build output goes in `dist/` (gitignored)
+- Source maps (`*.js.map`) only in `dist/`, never in `src/`
+- Type declarations (`*.d.ts`) only in `dist/`
+
+**Documentation:**
+- Active docs at root: `README.md`, `CLAUDE.md`
+- Detailed docs in `docs/`
+- Historical docs in `docs/archive/`
+- Test outputs excluded by `.gitignore` (`*.pdf`)
+
+**Test Files:**
+- Co-located with source code: `__tests__/` or `tests/` directories
+- Integration tests in package root: `packages/extension/tests/`
+- E2E tests in separate `tests/` directory if complex
