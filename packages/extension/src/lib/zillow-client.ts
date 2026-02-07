@@ -1,12 +1,10 @@
 /**
  * Zillow Property Data Fetcher
- * Uses public Zillow API to get SqFt and Year Built
  *
- * Note: Zillow's public API requires authentication.
- * This is a stub implementation that can be extended with:
- * - Zillow API key integration
- * - Alternative property data sources (e.g., Redfin, County Assessor)
- * - Local caching to reduce API calls
+ * Fetches property data from Zillow via the SCE2 cloud server API.
+ * The server handles the actual scraping to avoid CORS issues.
+ *
+ * Data cached in-memory to reduce API calls.
  */
 
 export interface ZillowPropertyData {
@@ -18,6 +16,16 @@ export interface ZillowPropertyData {
   propertyType?: string;
   lastSold?: string;
   zestimate?: number;
+  address?: string;
+}
+
+// Get API base URL from extension config
+async function getApiBaseUrl(): Promise<string> {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(['apiUrl'], (result) => {
+      resolve(result.apiUrl || 'http://localhost:3333');
+    });
+  });
 }
 
 /**
@@ -31,23 +39,27 @@ export async function fetchZillowData(
   zipCode: string
 ): Promise<Partial<ZillowPropertyData>> {
   try {
-    // TODO: Implement actual Zillow API integration
-    // Options:
-    // 1. Zillow API (requires API key)
-    // 2. RapidAPI Zillow Scraper
-    // 3. County assessor public records
-    // 4. Web scraping with proper rate limiting
+    const apiBaseUrl = await getApiBaseUrl();
+    const url = `${apiBaseUrl}/api/zillow/scrape?address=${encodeURIComponent(address)}&zipCode=${encodeURIComponent(zipCode)}`;
 
-    console.log(`[Zillow] Fetching data for ${address}, ${zipCode}`);
+    console.log(`[Zillow] Fetching data from API for ${address}, ${zipCode}`);
 
-    // Placeholder: In production, make actual API call
-    // const url = `https://api.zillow.com/v1/searchResults.htm?address=${encodeURIComponent(address)}&citystatezip=${encodeURIComponent(zipCode)}`;
-    // const response = await fetch(url, {
-    //   headers: { 'Authorization': `Bearer ${ZILLOW_API_KEY}` }
-    // });
+    const response = await fetch(url);
 
-    // For now, return empty object to not break existing flow
-    return {};
+    if (!response.ok) {
+      console.error(`[Zillow] API error: ${response.status} ${response.statusText}`);
+      return {};
+    }
+
+    const result = await response.json();
+
+    if (result.success && result.data) {
+      console.log('[Zillow] Successfully fetched property data:', result.data);
+      return result.data;
+    } else {
+      console.warn('[Zillow] API returned success=false or no data');
+      return {};
+    }
   } catch (error) {
     console.error('[Zillow] Fetch failed:', error);
     return {};

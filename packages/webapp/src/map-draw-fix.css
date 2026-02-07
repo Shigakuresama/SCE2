@@ -1,21 +1,21 @@
 /* Fix for leaflet-draw icons - make them visible with emoji */
 .leaflet-draw-draw-rectangle::before {
   content: '⬜';
-  font-size: 18px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1;
+  z-index: 999;
   position: relative;
 }
 
 .leaflet-draw-draw-circle::before {
   content: '⭕';
-  font-size: 18px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1;
+  z-index: 999;
   position: relative;
 }
 
@@ -29,4 +29,18 @@
   color: #3388ff !important;
   font-weight: bold;
   background-image: none !important;
+}
+
+/* Ensure the toolbar is visible and on top */
+.leaflet-draw-toolbar {
+  z-index: 1000 !important;
+}
+
+.leaflet-draw-section {
+  z-index: 1000 !important;
+}
+
+/* Ensure the draw controls container is visible */
+.leaflet-control-draw {
+  z-index: 1000 !important;
 }

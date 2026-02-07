@@ -93,6 +93,16 @@ class SCE2API {
   }
 
   /**
+   * Delete all properties (optional status filter)
+   */
+  async deleteAllProperties(status?: string): Promise<{ deletedCount: number }> {
+    const query = status ? `?status=${status}` : '';
+    return this.request<{ deletedCount: number }>(`/properties/all${query}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
    * Queue multiple addresses for scraping
    */
   async queueAddressesForScraping(addresses: AddressInput[]): Promise<void> {

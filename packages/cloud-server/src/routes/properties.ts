@@ -166,6 +166,30 @@ propertyRoutes.patch(
   })
 );
 
+// DELETE /api/properties/all - Delete all properties (with optional status filter)
+// MUST come before /:id route to avoid "all" being treated as an ID
+propertyRoutes.delete(
+  '/all',
+  asyncHandler(async (req, res) => {
+    const { status } = req.query;
+
+    const where: any = {};
+    if (status) {
+      where.status = status as string;
+    }
+
+    const result = await prisma.property.deleteMany({
+      where,
+    });
+
+    res.json({
+      success: true,
+      message: `Deleted ${result.count} properties`,
+      deletedCount: result.count,
+    });
+  })
+);
+
 // DELETE /api/properties/:id - Delete property
 propertyRoutes.delete(
   '/:id',

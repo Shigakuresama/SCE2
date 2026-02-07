@@ -86,6 +86,16 @@ export const Dashboard: React.FC = () => {
     fetchProperties();
   };
 
+  const handleDeleteProperty = async (id: number) => {
+    try {
+      await api.deleteProperty(id);
+      await fetchProperties(); // Refresh the list
+    } catch (error) {
+      console.error('Failed to delete property:', error);
+      alert(`Failed to delete property: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const stats = {
     total: properties.length,
     pendingScrape: properties.filter((p) => p.status === PropertyStatus.PENDING_SCRAPE).length,
@@ -302,6 +312,7 @@ export const Dashboard: React.FC = () => {
         properties={filteredProperties}
         loading={loading}
         onPropertyClick={(property) => console.log('Selected:', property)}
+        onPropertyDelete={handleDeleteProperty}
       />
     </div>
   );

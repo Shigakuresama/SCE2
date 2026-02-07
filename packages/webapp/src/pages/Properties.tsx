@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { PropertyStatus } from '../types';
 import { PropertyList } from '../components/PropertyList';
 import { useApp } from '../contexts/AppContext';
+import { api } from '../lib/api';
 
 export const Properties: React.FC = () => {
   const { properties, loading, errors, fetchProperties, clearError } = useApp();
   const [filter, setFilter] = useState<PropertyStatus | 'ALL'>('ALL');
+  const [deleting, setDeleting] = useState(false);
 
   // Auto-load properties on mount
   useEffect(() => {
@@ -22,6 +24,25 @@ export const Properties: React.FC = () => {
     fetchProperties();
   };
 
+  const handleDeleteAll = async () => {
+    const filterText = filter === 'ALL' ? 'all properties' : `all properties with status "${filter}"`;
+    if (!confirm(`Are you sure you want to delete ${filterText}? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const result = await api.deleteAllProperties(filter === 'ALL' ? undefined : filter);
+      alert(`Successfully deleted ${result.deletedCount} properties`);
+      await fetchProperties();
+    } catch (error) {
+      console.error('Failed to delete properties:', error);
+      alert(`Failed to delete properties: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -32,12 +53,21 @@ export const Properties: React.FC = () => {
             Manage and monitor your SCE rebate properties
           </p>
         </div>
-        <button
-          onClick={handleRefresh}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-        >
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleDeleteAll}
+            disabled={deleting || filteredProperties.length === 0}
+            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {deleting ? 'Deleting...' : `Delete All (${filteredProperties.length})`}
+          </button>
+          <button
+            onClick={handleRefresh}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -103,6 +133,16 @@ export const Properties: React.FC = () => {
         properties={filteredProperties}
         loading={loading}
         onPropertyClick={(property) => console.log('Selected:', property)}
+        onPropertyDelete={async (id) => {
+          if (!confirm('Delete this property?')) return;
+          try {
+            await api.deleteProperty(id);
+            await fetchProperties();
+          } catch (error) {
+            console.error('Failed to delete property:', error);
+            alert(`Failed to delete property: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }}
       />
     </div>
   );

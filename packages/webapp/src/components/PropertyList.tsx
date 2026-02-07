@@ -6,12 +6,14 @@ interface PropertyListProps {
   properties: Property[];
   loading: boolean;
   onPropertyClick: (property: Property) => void;
+  onPropertyDelete?: (id: number) => void;
 }
 
 export const PropertyList: React.FC<PropertyListProps> = ({
   properties,
   loading,
   onPropertyClick,
+  onPropertyDelete,
 }) => {
   if (loading) {
     return (
@@ -58,6 +60,7 @@ export const PropertyList: React.FC<PropertyListProps> = ({
           key={property.id}
           property={property}
           onClick={() => onPropertyClick(property)}
+          onDelete={onPropertyDelete}
         />
       ))}
     </div>

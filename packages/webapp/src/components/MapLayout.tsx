@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { MapContainer, TileLayer, FeatureGroup, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import 'leaflet-draw';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -88,7 +87,7 @@ async function reverseGeocode(lat: number, lng: number): Promise<AddressInput | 
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
       {
         headers: {
-          'User-Agent': 'SCE2-Map-Selector', // Nominatim requires user-agent
+          'User-Agent': 'SCE2-Map-Selector',
         },
       }
     );
@@ -111,7 +110,6 @@ async function reverseGeocode(lat: number, lng: number): Promise<AddressInput | 
     const postcode = addr.postcode || '';
     const state = addr.state || 'CA';
 
-    // Must have at least a street name
     if (!street) {
       return null;
     }
@@ -137,32 +135,254 @@ interface MapLayoutProps {
   existingProperties?: Property[];
 }
 
+type DrawMode = null | 'rectangle' | 'circle';
+
+// Component to handle map events and drawing
+function MapController({
+  drawMode,
+  onDrawComplete,
+  onMapReady,
+}: {
+  drawMode: DrawMode;
+  onDrawComplete: (bounds: Bounds) => void;
+  onMapReady?: (map: L.Map) => void;
+}) {
+  const map = useMap();
+
+  // Notify parent when map is ready
+  useEffect(() => {
+    if (map && onMapReady) {
+      onMapReady(map);
+    }
+  }, [map, onMapReady]);
+  const drawModeRef = useRef(drawMode);
+
+  // Drawing state refs
+  const rectangleStartRef = useRef<L.LatLng | null>(null);
+  const rectangleMarkerRef = useRef<L.CircleMarker | null>(null);
+
+  const circleCenterRef = useRef<L.LatLng | null>(null);
+  const circleMarkerRef = useRef<L.CircleMarker | null>(null);
+  const circleRadiusLineRef = useRef<L.Polyline | null>(null);
+
+  // Update drawMode ref when prop changes
+  useEffect(() => {
+    drawModeRef.current = drawMode;
+  }, [drawMode]);
+
+  useEffect(() => {
+    if (!drawMode) {
+      // Clean up any existing drawing artifacts
+      if (rectangleMarkerRef.current) {
+        map.removeLayer(rectangleMarkerRef.current);
+        rectangleMarkerRef.current = null;
+      }
+      if (circleMarkerRef.current) {
+        map.removeLayer(circleMarkerRef.current);
+        circleMarkerRef.current = null;
+      }
+      if (circleRadiusLineRef.current) {
+        map.removeLayer(circleRadiusLineRef.current);
+        circleRadiusLineRef.current = null;
+      }
+      return;
+    }
+
+    // Set cursor style
+    const mapContainer = map.getContainer();
+    mapContainer.style.cursor = 'crosshair';
+
+    // Rectangle mode handlers
+    const handleRectangleClick = (e: L.LeafletMouseEvent) => {
+      if (drawModeRef.current !== 'rectangle') return;
+
+      if (!rectangleStartRef.current) {
+        // First click - set start point
+        rectangleStartRef.current = e.latlng;
+
+        // Add marker to show start point
+        rectangleMarkerRef.current = L.circleMarker(e.latlng, {
+          radius: 5,
+          color: '#2196F3',
+          fillColor: '#2196F3',
+          fillOpacity: 0.8,
+        }).addTo(map);
+
+        console.log('[MapLayout] Rectangle start point:', e.latlng);
+      } else {
+        // Second click - complete rectangle
+        const startPoint = rectangleStartRef.current;
+        const bounds = L.latLngBounds(startPoint, e.latlng);
+
+        // Draw rectangle
+        L.rectangle(bounds, {
+          color: '#2196F3',
+          weight: 2,
+          fillColor: '#2196F3',
+          fillOpacity: 0.1,
+        }).addTo(map);
+
+        // Clean up marker
+        if (rectangleMarkerRef.current) {
+          map.removeLayer(rectangleMarkerRef.current);
+          rectangleMarkerRef.current = null;
+        }
+
+        // Calculate bounds for API
+        const north = bounds.getNorth();
+        const south = bounds.getSouth();
+        const east = bounds.getEast();
+        const west = bounds.getWest();
+
+        console.log('[MapLayout] Rectangle completed:', { north, south, east, west });
+
+        // Trigger callback
+        onDrawComplete({ north, south, east, west });
+
+        // Reset state
+        rectangleStartRef.current = null;
+        mapContainer.style.cursor = '';
+      }
+    };
+
+    const handleRectangleMove = (e: L.LeafletMouseEvent) => {
+      if (drawModeRef.current !== 'rectangle' || !rectangleMarkerRef.current) return;
+
+      // Move marker to show preview
+      rectangleMarkerRef.current.setLatLng(e.latlng);
+    };
+
+    // Circle mode handlers
+    const handleCircleClick = (e: L.LeafletMouseEvent) => {
+      if (drawModeRef.current !== 'circle') return;
+
+      if (!circleCenterRef.current) {
+        // First click - set center
+        circleCenterRef.current = e.latlng;
+
+        // Add marker to show center
+        circleMarkerRef.current = L.circleMarker(e.latlng, {
+          radius: 5,
+          color: '#FF9800',
+          fillColor: '#FF9800',
+          fillOpacity: 0.8,
+        }).addTo(map);
+
+        console.log('[MapLayout] Circle center:', e.latlng);
+      } else {
+        // Second click - complete circle
+        const center = circleCenterRef.current;
+        const radius = center.distanceTo(e.latlng);
+
+        // Draw circle
+        L.circle(center, {
+          radius: radius,
+          color: '#FF9800',
+          weight: 2,
+          fillColor: '#FF9800',
+          fillOpacity: 0.1,
+        }).addTo(map);
+
+        // Calculate bounds for API (approximate bounding box)
+        const latDelta = radius / 111000;
+        const lngDelta = radius / (111000 * Math.cos(center.lat * Math.PI / 180));
+
+        const north = center.lat + latDelta;
+        const south = center.lat - latDelta;
+        const east = center.lng + lngDelta;
+        const west = center.lng - lngDelta;
+
+        // Clean up
+        if (circleMarkerRef.current) {
+          map.removeLayer(circleMarkerRef.current);
+          circleMarkerRef.current = null;
+        }
+        if (circleRadiusLineRef.current) {
+          map.removeLayer(circleRadiusLineRef.current);
+          circleRadiusLineRef.current = null;
+        }
+
+        console.log('[MapLayout] Circle completed - radius:', radius, 'meters');
+
+        // Trigger callback
+        onDrawComplete({ north, south, east, west });
+
+        // Reset state
+        circleCenterRef.current = null;
+        mapContainer.style.cursor = '';
+      }
+    };
+
+    const handleCircleMove = (e: L.LeafletMouseEvent) => {
+      if (drawModeRef.current !== 'circle' || !circleCenterRef.current) return;
+
+      // Show radius line
+      if (circleRadiusLineRef.current) {
+        circleRadiusLineRef.current.setLatLngs([circleCenterRef.current, e.latlng]);
+      } else {
+        circleRadiusLineRef.current = L.polyline([circleCenterRef.current, e.latlng], {
+          color: '#FF9800',
+          weight: 1,
+          dashArray: '5, 10',
+        }).addTo(map);
+      }
+    };
+
+    // Add event listeners based on mode
+    if (drawMode === 'rectangle') {
+      map.on('click', handleRectangleClick);
+      map.on('mousemove', handleRectangleMove);
+    } else if (drawMode === 'circle') {
+      map.on('click', handleCircleClick);
+      map.on('mousemove', handleCircleMove);
+    }
+
+    // Cleanup
+    return () => {
+      map.off('click', handleRectangleClick);
+      map.off('mousemove', handleRectangleMove);
+      map.off('click', handleCircleClick);
+      map.off('mousemove', handleCircleMove);
+      mapContainer.style.cursor = '';
+    };
+  }, [map, drawMode, onDrawComplete]);
+
+  return null;
+}
+
 export const MapLayout: React.FC<MapLayoutProps> = ({
   onAddressesSelected,
   existingProperties = [],
 }) => {
-  const [mapCenter] = useState<[number, number]>([33.8361, -117.8897]); // Orange County, CA
+  const [mapCenter] = useState<[number, number]>([33.8361, -117.8897]);
   const [loading, setLoading] = useState(false);
   const [hasSelectedArea, setHasSelectedArea] = useState(false);
-  const [currentBounds, setCurrentBounds] = useState<Bounds | null>(null);
   const [addressCount, setAddressCount] = useState(0);
   const [isClickToPinMode, setIsClickToPinMode] = useState(false);
+  const [drawMode, setDrawMode] = useState<DrawMode>(null);
   const [clickMarkers, setClickMarkers] = useState<L.Marker[]>([]);
-  const mapRef = useRef<L.Map | null>(null);
-  const featureGroupRef = useRef<L.FeatureGroup>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
 
   const handleFetchAddresses = useCallback(
     async (bounds: Bounds) => {
       setLoading(true);
+      setFetchError(null);
       try {
         const addresses = await fetchAddressesInBounds(bounds);
         setAddressCount(addresses.length);
+        setHasSelectedArea(true);
+
         if (addresses.length > 0) {
           onAddressesSelected(addresses);
+          console.log(`[MapLayout] Found ${addresses.length} addresses`);
+        } else {
+          console.log('[MapLayout] No addresses found in selected area');
         }
       } catch (error) {
         console.error('Failed to fetch addresses:', error);
         setAddressCount(0);
+        setFetchError(error instanceof Error ? error.message : 'Failed to fetch addresses');
       } finally {
         setLoading(false);
       }
@@ -170,191 +390,85 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
     [onAddressesSelected]
   );
 
-  // Initialize drawing controls when map is ready
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !featureGroupRef.current) return;
-
-    // Add leaflet-draw controls
-    const drawControl = new L.Control.Draw({
-      position: 'topright',
-      draw: {
-        polygon: false,
-        polyline: false,
-        rectangle: {
-          shapeOptions: {
-            color: '#3388ff',
-            weight: 2,
-            fillOpacity: 0.2,
-          },
-          showArea: true,
-          metric: true,
-        },
-        circle: {
-          shapeOptions: {
-            color: '#3388ff',
-            weight: 2,
-            fillOpacity: 0.2,
-          },
-          metric: true,
-        },
-        circlemarker: false,
-        marker: false,
-      },
-      edit: {
-        featureGroup: featureGroupRef.current,
-        remove: true,
-        edit: false,
-      },
-    });
-
-    map.addControl(drawControl);
-
-    // Disable map dragging when a draw tool is activated (using DRAWSTART event)
-    map.on(L.Draw.Event.DRAWSTART, () => {
-      map.dragging.disable();
-      console.log('[MapLayout] Drawing mode activated - map dragging disabled');
-    });
-
-    // Re-enable map dragging when drawing is disabled (using DRAWSTOP event)
-    map.on(L.Draw.Event.DRAWSTOP, () => {
-      map.dragging.enable();
-      console.log('[MapLayout] Drawing mode deactivated - map dragging enabled');
-    });
-
-    // Listen for draw:created events
-    map.on(L.Draw.Event.CREATED, (e) => {
-      const layer = (e as L.DrawEvents.Created).layer;
-      featureGroupRef.current?.addLayer(layer);
-
-      if (layer instanceof L.Rectangle || layer instanceof L.Circle) {
-        const bounds = layer.getBounds();
-        const boundsObj: Bounds = {
-          north: bounds.getNorth(),
-          south: bounds.getSouth(),
-          east: bounds.getEast(),
-          west: bounds.getWest(),
-        };
-
-        setCurrentBounds(boundsObj);
-        setHasSelectedArea(true);
-        handleFetchAddresses(boundsObj);
-      }
-
-      // Re-enable dragging after drawing is complete
-      map.dragging.enable();
-    });
-
-    // Listen for draw:deleted events
-    map.on(L.Draw.Event.DELETED, () => {
-      setHasSelectedArea(false);
-      setCurrentBounds(null);
-      setAddressCount(0);
-    });
-
-    return () => {
-      map.removeControl(drawControl);
-      map.off(L.Draw.Event.DRAWSTART);
-      map.off(L.Draw.Event.DRAWSTOP);
-      map.off(L.Draw.Event.CREATED);
-      map.off(L.Draw.Event.DELETED);
-    };
-  }, [handleFetchAddresses]);
+  const handleDrawComplete = useCallback(
+    (bounds: Bounds) => {
+      handleFetchAddresses(bounds);
+      setDrawMode(null); // Exit draw mode after completion
+    },
+    [handleFetchAddresses]
+  );
 
   // Handle map click for click-to-pin functionality
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
+  const handleMapClick = async (e: L.LeafletMouseEvent) => {
+    if (drawMode !== null) return; // Don't handle if in draw mode
+    if (!isClickToPinMode) return;
 
-    const handleMapClick = async (e: L.LeafletMouseEvent) => {
-      if (!isClickToPinMode) return;
+    const { lat, lng } = e.latlng;
+    console.log('[MapLayout] Clicked at:', lat, lng);
 
-      const { lat, lng } = e.latlng;
+    const address = await reverseGeocode(lat, lng);
 
-      // Show loading state
-      console.log('[MapLayout] Clicked at:', lat, lng);
-
-      // Reverse geocode to get address
-      const address = await reverseGeocode(lat, lng);
-
-      if (!address) {
-        console.error('[MapLayout] Failed to geocode clicked location');
-        return;
-      }
-
-      console.log('[MapLayout] Geocoded address:', address);
-
-      // Create marker
-      const marker = L.marker([lat, lng], { icon: pinIcon });
-      marker.bindPopup(`
-        <div style="min-width: 200px;">
-          <strong>📍 ${address.streetNumber} ${address.streetName}</strong><br/>
-          ${address.city}, ${address.state} ${address.zipCode}<br/>
-          <button
-            onclick="window.queueAddress('${encodeURIComponent(JSON.stringify(address))}')"
-            style="margin-top: 8px; padding: 4px 12px; background: #22c55e; color: white; border: none; border-radius: 4px; cursor: pointer;"
-          >
-            Queue for Scraping
-          </button>
-        </div>
-      `);
-
-      marker.addTo(map);
-
-      // Add to markers list
-      setClickMarkers(prev => [...prev, marker]);
-
-      // Queue the address automatically
-      try {
-        await onAddressesSelected([address]);
-        console.log('[MapLayout] Address queued successfully');
-      } catch (error) {
-        console.error('[MapLayout] Failed to queue address:', error);
-      }
-    };
-
-  // Expose queueAddress function globally for popup button
-    (window as any).queueAddress = async (encodedAddress: string) => {
-      const address = JSON.parse(decodeURIComponent(encodedAddress));
-      try {
-        await onAddressesSelected([address]);
-        alert('Address queued for scraping!');
-      } catch (error) {
-        console.error('Failed to queue address:', error);
-        alert('Failed to queue address. See console for details.');
-      }
-    };
-
-    map.on('click', handleMapClick);
-
-    return () => {
-      map.off('click', handleMapClick);
-      delete (window as any).queueAddress;
-    };
-  }, [isClickToPinMode, onAddressesSelected]);
-
-  const handleClearSelection = () => {
-    if (featureGroupRef.current) {
-      featureGroupRef.current.eachLayer((layer) => {
-        featureGroupRef.current?.removeLayer(layer);
-      });
+    if (!address) {
+      console.error('[MapLayout] Failed to geocode clicked location');
+      return;
     }
+
+    console.log('[MapLayout] Geocoded address:', address);
+
+    // Create marker (will be added when map ref is available)
+    const marker = L.marker([lat, lng], { icon: pinIcon });
+    marker.bindPopup(`
+      <div style="min-width: 200px;">
+        <strong>📍 ${address.streetNumber} ${address.streetName}</strong><br/>
+        ${address.city}, ${address.state} ${address.zipCode}
+      </div>
+    `);
+
+    setClickMarkers((prev) => [...prev, marker]);
+
+    // Queue the address
+    try {
+      await onAddressesSelected([address]);
+      console.log('[MapLayout] Address queued successfully');
+    } catch (error) {
+      console.error('[MapLayout] Failed to queue address:', error);
+    }
+  };
+
+  const handleEnableRectangle = () => {
+    setDrawMode('rectangle');
+    setIsClickToPinMode(false);
     setHasSelectedArea(false);
-    setCurrentBounds(null);
     setAddressCount(0);
+    console.log('[MapLayout] Rectangle draw mode enabled - Click start point');
+  };
+
+  const handleEnableCircle = () => {
+    setDrawMode('circle');
+    setIsClickToPinMode(false);
+    setHasSelectedArea(false);
+    setAddressCount(0);
+    console.log('[MapLayout] Circle draw mode enabled - Click center point');
+  };
+
+  const handleDisableDrawMode = () => {
+    setDrawMode(null);
+    setHasSelectedArea(false);
+    setAddressCount(0);
+    console.log('[MapLayout] Draw mode disabled');
   };
 
   const handleToggleClickToPin = () => {
     setIsClickToPinMode(!isClickToPinMode);
-    // Clear click markers when disabling
+    setDrawMode(null);
     if (isClickToPinMode) {
-      clickMarkers.forEach(marker => marker.remove());
+      clickMarkers.forEach((marker) => marker.remove());
       setClickMarkers([]);
     }
   };
 
   const handleClearClickMarkers = () => {
-    clickMarkers.forEach(marker => marker.remove());
+    clickMarkers.forEach((marker) => marker.remove());
     setClickMarkers([]);
   };
 
@@ -364,22 +478,161 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
         <h3 className="text-lg font-semibold text-blue-900 mb-2">
           🗺️ Map Address Selection
         </h3>
-        <p className="text-sm text-blue-700 mb-3">
-          Use the drawing tools (rectangle or circle) in the top-right corner to draw a shape on the map.
-          All addresses in the selected area will be queued for scraping.
-        </p>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="text-sm text-blue-700">
-            <span className="font-medium">Instructions:</span>
-            <ol className="list-decimal list-inside mt-1 space-y-1">
-              <li>Click the rectangle or circle tool in the top-right corner</li>
-              <li>Click and drag on the map to draw a shape</li>
-              <li>Addresses will be fetched automatically</li>
-            </ol>
+        {/* Address Search Bar */}
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex-1">
+            <label className="text-xs font-semibold text-gray-600 mb-1 block">Search & Pin Address</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                id="addressSearch"
+                placeholder="1909 W Martha Ln, Santa Ana, CA"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    (document.getElementById('searchBtn') as HTMLButtonElement)?.click();
+                  }
+                }}
+              />
+              <button
+                id="searchBtn"
+                onClick={async () => {
+                  const input = document.getElementById('addressSearch') as HTMLInputElement;
+                  const address = input.value.trim();
+                  if (!address) return;
+
+                  // Show loading state
+                  const btn = document.getElementById('searchBtn') as HTMLButtonElement;
+                  btn.textContent = '⏳';
+                  btn.disabled = true;
+
+                  try {
+                    // Use Nominatim to search for the address
+                    const response = await fetch(
+                      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address + ', Orange County, CA')}`,
+                      {
+                        headers: { 'User-Agent': 'SCE2-Map-Search' },
+                      }
+                    );
+
+                    const data = await response.json();
+
+                    if (data && data.length > 0) {
+                      const result = data[0];
+                      const lat = parseFloat(result.lat);
+                      const lon = parseFloat(result.lon);
+
+                      console.log('[MapLayout] Found address:', result.display_name, 'at', lat, lon);
+
+                      // Move map to location and add pin
+                      if (mapInstance) {
+                        mapInstance.setView([lat, lon], 17);
+
+                        // Create marker
+                        const marker = L.marker([lat, lon], { icon: pinIcon });
+                        marker.bindPopup(`
+                          <div style="min-width: 200px;">
+                            <strong>📍 ${result.display_name}</strong>
+                          </div>
+                        `).addTo(map);
+
+                        setClickMarkers((prev) => [...prev, marker]);
+
+                        // Queue the address
+                        const addressData = {
+                          addressFull: result.display_name,
+                          streetNumber: '0',
+                          streetName: result.display_name.split(',')[0]?.trim() || 'Unknown',
+                          city: result.address?.city || result.address?.town || result.address?.village || null,
+                          state: result.address?.state || 'CA',
+                          zipCode: result.address?.postcode || '00000',
+                          latitude: lat,
+                          longitude: lon,
+                        };
+
+                        await onAddressesSelected([addressData]);
+                        console.log('[MapLayout] Address queued successfully');
+
+                        // Show success message
+                        input.value = '';
+                      }
+                    } else {
+                      alert('Address not found. Try:\n- Include the full address\n- Add "Orange County, CA" or the city name\n- Check the spelling');
+                    }
+                  } catch (error) {
+                    console.error('[MapLayout] Search failed:', error);
+                    alert('Failed to search for address. Please try again.');
+                  } finally {
+                    btn.textContent = '🔍';
+                    btn.disabled = false;
+                  }
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
+              >
+                🔍
+              </button>
+            </div>
+            <div className="text-xs text-gray-500">
+              Type address and press Enter or click 🔍
+            </div>
           </div>
         </div>
 
+        {/* Draw mode buttons */}
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          <div className="text-sm text-blue-700 flex-1">
+            <span className="font-medium">Drawing Tools:</span>
+          </div>
+          <button
+            onClick={handleEnableRectangle}
+            className={`px-4 py-2 rounded-md font-medium text-sm transition-colors ${
+              drawMode === 'rectangle'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+            title="Click to set rectangle start point, click again to complete"
+          >
+            ⬜ Rectangle
+          </button>
+          <button
+            onClick={handleEnableCircle}
+            className={`px-4 py-2 rounded-md font-medium text-sm transition-colors ${
+              drawMode === 'circle'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+            title="Click to set circle center, click again to set radius"
+          >
+            ⭕ Circle
+          </button>
+          {drawMode && (
+            <button
+              onClick={handleDisableDrawMode}
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+
+        {/* Instructions based on mode */}
+        {drawMode === 'rectangle' && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded p-2 mb-3">
+            <p className="text-sm text-yellow-800">
+              <strong>Rectangle Mode:</strong> Click to set start point, move mouse, click again to complete rectangle
+            </p>
+          </div>
+        )}
+        {drawMode === 'circle' && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded p-2 mb-3">
+            <p className="text-sm text-yellow-800">
+              <strong>Circle Mode:</strong> Click to set center, move mouse to set radius, click again to complete
+            </p>
+          </div>
+        )}
+
+        {/* Click to pin mode */}
         <div className="mt-4 pt-4 border-t border-blue-200">
           <div className="flex items-center gap-4">
             <button
@@ -408,6 +661,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
           </div>
         </div>
 
+        {/* Loading indicator */}
         {loading && (
           <div className="mt-3 flex items-center">
             <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 mr-2"></div>
@@ -415,6 +669,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
           </div>
         )}
 
+        {/* Results */}
         {!loading && hasSelectedArea && (
           <div className="mt-3 bg-green-50 border border-green-200 rounded p-3">
             <div className="text-sm text-green-800">
@@ -423,36 +678,42 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
               Found {addressCount} address{addressCount !== 1 ? 'es' : ''} in the selected area.
               {addressCount > 0 && ' These have been queued for scraping.'}
             </div>
-            {currentBounds && (
-              <div className="mt-2 text-xs text-green-700 font-mono bg-green-100 rounded p-2">
-                Bounds: {currentBounds.north.toFixed(4)}, {currentBounds.south.toFixed(4)},{' '}
-                {currentBounds.east.toFixed(4)}, {currentBounds.west.toFixed(4)}
-              </div>
-            )}
-            <button
-              onClick={handleClearSelection}
-              className="mt-2 px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
-            >
-              Clear Selection
-            </button>
+          </div>
+        )}
+
+        {/* Error message */}
+        {!loading && fetchError && (
+          <div className="mt-3 bg-red-50 border border-red-200 rounded p-3">
+            <div className="text-sm text-red-800">
+              <span className="font-medium">Failed to fetch addresses:</span>
+              <br />
+              {fetchError}
+              <br />
+              <span className="text-xs">Tip: Try drawing a smaller area or wait a moment and try again.</span>
+            </div>
           </div>
         )}
       </div>
 
       <MapContainer
-        ref={mapRef}
         center={mapCenter}
         zoom={13}
-        style={{ height: '500px', width: '100%', zIndex: 0 }}
+        style={{ height: '500px', width: '100%' }}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        <FeatureGroup ref={featureGroupRef}>
-          {/* Drawing controls are added programmatically via useEffect */}
-        </FeatureGroup>
+        {/* Map controller for drawing and clicks */}
+        <MapController
+          drawMode={drawMode}
+          onDrawComplete={handleDrawComplete}
+          onMapReady={setMapInstance}
+        />
+
+        {/* Click handler wrapper */}
+        <MapClickHandler onClick={handleMapClick} />
 
         {/* Show existing properties as markers */}
         {existingProperties.map((prop) => {
@@ -498,7 +759,33 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
             </Marker>
           );
         })}
+
+        {/* Show click markers */}
+        {clickMarkers.map((marker, index) => (
+          <Marker key={index} position={marker.getLatLng()} icon={pinIcon}>
+            <Popup>{String(marker.getPopup()?.getContent() || '')}</Popup>
+          </Marker>
+        ))}
       </MapContainer>
     </div>
   );
 };
+
+// Component to handle map click events
+function MapClickHandler({ onClick }: { onClick: (e: L.LeafletMouseEvent) => void }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const handleClick = (e: L.LeafletMouseEvent) => {
+      onClick(e);
+    };
+
+    map.on('click', handleClick);
+
+    return () => {
+      map.off('click', handleClick);
+    };
+  }, [map, onClick]);
+
+  return null;
+}

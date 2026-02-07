@@ -82,10 +82,12 @@ function normalizeAddress(el: AddressFromOverpass, defaultZip?: string): Address
 export async function fetchAddressesInBounds(
   bounds: Bounds
 ): Promise<AddressInput[]> {
-  const bbox = `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`;
+  // Overpass bounding box format: (south, west, north, east)
+  const bbox = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
 
+  // Increased timeout to 60 seconds for complex queries
   const query = `
-    [out:json][timeout:25];
+    [out:json][timeout:60];
     (
       way["addr:street"]["addr:housenumber"](${bbox});
       relation["addr:street"]["addr:housenumber"](${bbox});
@@ -96,11 +98,20 @@ export async function fetchAddressesInBounds(
 
   console.log('[Overpass] Fetching addresses in bounds:', bbox);
 
-  const response = await fetch(
-    `${OVERPASS_API_URL}?data=${encodeURIComponent(query)}`
-  );
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 65000); // 65s timeout
+
+  try {
+    const response = await fetch(
+      `${OVERPASS_API_URL}?data=${encodeURIComponent(query)}`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
 
   if (!response.ok) {
+    if (response.status === 504 || response.status === 503) {
+      throw new Error('Overpass API is temporarily overloaded. Please try a smaller area or wait a moment and try again.');
+    }
     throw new Error(`Overpass API error: ${response.status} ${response.statusText}`);
   }
 
@@ -136,4 +147,11 @@ export async function fetchAddressesInBounds(
   console.log(`[Overpass] Returning ${validAddresses.length} validated addresses`);
 
   return validAddresses;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timed out. The Overpass API may be overloaded. Please try drawing a smaller area.');
+    }
+    throw error;
+  }
 }
