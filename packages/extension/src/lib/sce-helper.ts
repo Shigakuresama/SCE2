@@ -1,7 +1,18 @@
 // SCE Helper class for form interactions
 // Enhanced with Angular Material patterns from SCE v1
 
-import type { AdditionalCustomerInfo } from './sections/additional-customer';
+import type { AdditionalCustomerInfo } from './sections/additional-customer.js';
+import type { ProjectInfo } from './sections/project.js';
+import type { TradeAllyInfo } from './sections/trade-ally.js';
+import type { AssessmentInfo } from './sections/assessment.js';
+import type { HouseholdInfo } from './sections/household.js';
+import type { EnrollmentInfo } from './sections/enrollment.js';
+import type { EquipmentInfo } from './sections/equipment.js';
+import type { BasicEnrollmentInfo } from './sections/basic-enrollment.js';
+import type { BonusInfo } from './sections/bonus.js';
+import type { TermsInfo } from './sections/terms.js';
+import type { CommentsInfo } from './sections/comments.js';
+import type { StatusInfo } from './sections/status.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -330,6 +341,210 @@ export class SCEHelper {
 
     return results.every(r => r.status === 'fulfilled');
   }
+
+  // ==========================================
+  // PROJECT INFO
+  // ==========================================
+  async fillProjectInfo(data: Partial<ProjectInfo>): Promise<boolean> {
+    const results = await Promise.allSettled([
+      data.squareFootage ? this.fillField('', data.squareFootage, 'Square Footage') : Promise.resolve(),
+      data.yearBuilt ? this.fillField('', data.yearBuilt, 'Year Built') : Promise.resolve(),
+      data.propertyType ? this.fillSelect('', data.propertyType, true) : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+
+  // ==========================================
+  // TRADE ALLY INFO
+  // ==========================================
+  async fillTradeAllyInfo(data: Partial<TradeAllyInfo>): Promise<boolean> {
+    const results = await Promise.allSettled([
+      data.firstName ? this.fillField('', data.firstName, 'First Name') : Promise.resolve(),
+      data.lastName ? this.fillField('', data.lastName, 'Last Name') : Promise.resolve(),
+      data.title ? this.fillField('', data.title, 'Title') : Promise.resolve(),
+      data.phone ? this.fillField('', data.phone, 'Phone') : Promise.resolve(),
+      data.email ? this.fillField('', data.email, 'Email') : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+
+  // ==========================================
+  // ASSESSMENT INFO
+  // ==========================================
+  async fillAssessmentInfo(data: Partial<AssessmentInfo>): Promise<boolean> {
+    const results = await Promise.allSettled([
+      data.hasAttic ? this.fillSelect('', data.hasAttic, true) : Promise.resolve(),
+      data.hasBasement ? this.fillSelect('', data.hasBasement, true) : Promise.resolve(),
+      data.hasCrawlspace ? this.fillSelect('', data.hasCrawlspace, true) : Promise.resolve(),
+      data.heatingType ? this.fillSelect('', data.heatingType, true) : Promise.resolve(),
+      data.coolingType ? this.fillSelect('', data.coolingType, true) : Promise.resolve(),
+      data.waterHeaterType ? this.fillSelect('', data.waterHeaterType, true) : Promise.resolve(),
+      data.windowType ? this.fillSelect('', data.windowType, true) : Promise.resolve(),
+      data.insulationLevel ? this.fillSelect('', data.insulationLevel, true) : Promise.resolve(),
+      data.hasSolar ? this.fillSelect('', data.hasSolar, true) : Promise.resolve(),
+      data.hasPool ? this.fillSelect('', data.hasPool, true) : Promise.resolve(),
+      data.notes ? this.fillField('', data.notes, 'Notes') : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+
+  // ==========================================
+  // HOUSEHOLD INFO
+  // ==========================================
+  async fillHouseholdInfo(data: Partial<HouseholdInfo>): Promise<boolean> {
+    const results = await Promise.allSettled([
+      data.householdSize ? this.fillField('', data.householdSize, 'Household Size') : Promise.resolve(),
+      data.incomeLevel ? this.fillSelect('', data.incomeLevel, true) : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+
+  // ==========================================
+  // ENROLLMENT INFO
+  // ==========================================
+  async fillEnrollmentInfo(data: Partial<EnrollmentInfo>): Promise<boolean> {
+    const results = await Promise.allSettled([
+      data.enrollmentDate ? this.fillField('', data.enrollmentDate, 'Enrollment Date') : Promise.resolve(),
+      data.programSource ? this.fillSelect('', data.programSource, true) : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+
+  // ==========================================
+  // EQUIPMENT INFO
+  // ==========================================
+  async fillEquipmentInfo(data: Partial<EquipmentInfo>): Promise<boolean> {
+    const results = await Promise.allSettled([
+      data.primaryHeating ? this.fillSelect('', data.primaryHeating, true) : Promise.resolve(),
+      data.primaryCooling ? this.fillSelect('', data.primaryCooling, true) : Promise.resolve(),
+      data.waterHeater ? this.fillSelect('', data.waterHeater, true) : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+
+  // ==========================================
+  // BASIC ENROLLMENT INFO
+  // ==========================================
+  async fillBasicEnrollmentInfo(data: Partial<BasicEnrollmentInfo>): Promise<boolean> {
+    const results = await Promise.allSettled([
+      data.utilityAccount ? this.fillField('', data.utilityAccount, 'Utility Account') : Promise.resolve(),
+      data.rateSchedule ? this.fillSelect('', data.rateSchedule, true) : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+
+  // ==========================================
+  // BONUS INFO
+  // ==========================================
+  async fillBonusInfo(data: Partial<BonusInfo>): Promise<boolean> {
+    const results = await Promise.allSettled([
+      data.bonusProgram ? this.fillSelect('', data.bonusProgram, true) : Promise.resolve(),
+      data.bonusAmount ? this.fillField('', data.bonusAmount, 'Bonus Amount') : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+
+  // ==========================================
+  // TERMS INFO
+  // ==========================================
+  async fillTermsInfo(data: Partial<TermsInfo>): Promise<boolean> {
+    // Terms acceptance is typically a checkbox
+    if (data.termsAccepted) {
+      const termsCheckbox = document.querySelector('input[type="checkbox"][id*="term"], input[type="checkbox"][id*="agree"]') as HTMLInputElement;
+      if (termsCheckbox && !termsCheckbox.checked) {
+        termsCheckbox.click();
+      }
+    }
+
+    if (data.consentDate) {
+      await this.fillField('', data.consentDate, 'Consent Date');
+    }
+
+    return true;
+  }
+
+  // ==========================================
+  // COMMENTS INFO
+  // ==========================================
+  async fillCommentsInfo(data: Partial<CommentsInfo>): Promise<boolean> {
+    if (data.comments) {
+      const textarea = document.querySelector('textarea[name*="comment"], textarea[id*="comment"]') as HTMLTextAreaElement;
+      if (textarea) {
+        textarea.value = data.comments;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        textarea.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        await this.fillField('', data.comments, 'Comments');
+      }
+    }
+    return true;
+  }
+
+  // ==========================================
+  // STATUS INFO
+  // ==========================================
+  async fillStatusInfo(data: Partial<StatusInfo>): Promise<boolean> {
+    const results = await Promise.allSettled([
+      data.applicationStatus ? this.fillSelect('', data.applicationStatus, true) : Promise.resolve(),
+      data.lastUpdated ? this.fillField('', data.lastUpdated, 'Last Updated') : Promise.resolve(),
+    ]);
+
+    return results.every(r => r.status === 'fulfilled');
+  }
+
+  // ==========================================
+  // FILL ALL SECTIONS
+  // ==========================================
+  /**
+   * Fill all form sections with provided data
+   * @param sections - Object containing all section data
+   */
+  async fillAllSections(sections: {
+    additionalInfo?: Partial<AdditionalCustomerInfo>;
+    projectInfo?: Partial<ProjectInfo>;
+    tradeAllyInfo?: Partial<TradeAllyInfo>;
+    assessmentInfo?: Partial<AssessmentInfo>;
+    householdInfo?: Partial<HouseholdInfo>;
+    enrollmentInfo?: Partial<EnrollmentInfo>;
+    equipmentInfo?: Partial<EquipmentInfo>;
+    basicEnrollmentInfo?: Partial<BasicEnrollmentInfo>;
+    bonusInfo?: Partial<BonusInfo>;
+    termsInfo?: Partial<TermsInfo>;
+    commentsInfo?: Partial<CommentsInfo>;
+    statusInfo?: Partial<StatusInfo>;
+  }): Promise<void> {
+    console.log('Filling all sections...');
+
+    const fillResults = await Promise.allSettled([
+      sections.additionalInfo ? this.fillAdditionalCustomerInfo(sections.additionalInfo) : Promise.resolve(true),
+      sections.projectInfo ? this.fillProjectInfo(sections.projectInfo) : Promise.resolve(true),
+      sections.tradeAllyInfo ? this.fillTradeAllyInfo(sections.tradeAllyInfo) : Promise.resolve(true),
+      sections.assessmentInfo ? this.fillAssessmentInfo(sections.assessmentInfo) : Promise.resolve(true),
+      sections.householdInfo ? this.fillHouseholdInfo(sections.householdInfo) : Promise.resolve(true),
+      sections.enrollmentInfo ? this.fillEnrollmentInfo(sections.enrollmentInfo) : Promise.resolve(true),
+      sections.equipmentInfo ? this.fillEquipmentInfo(sections.equipmentInfo) : Promise.resolve(true),
+      sections.basicEnrollmentInfo ? this.fillBasicEnrollmentInfo(sections.basicEnrollmentInfo) : Promise.resolve(true),
+      sections.bonusInfo ? this.fillBonusInfo(sections.bonusInfo) : Promise.resolve(true),
+      sections.termsInfo ? this.fillTermsInfo(sections.termsInfo) : Promise.resolve(true),
+      sections.commentsInfo ? this.fillCommentsInfo(sections.commentsInfo) : Promise.resolve(true),
+      sections.statusInfo ? this.fillStatusInfo(sections.statusInfo) : Promise.resolve(true),
+    ]);
+
+    const failures = fillResults.filter(r => r.status === 'rejected');
+    if (failures.length > 0) {
+      console.warn(`Failed to fill ${failures.length} sections:`, failures.map(f => f.status === 'rejected' ? f.reason : 'unknown'));
+    } else {
+      console.log('All sections filled successfully');
+    }
+  }
 }
 
 // ==========================================
@@ -369,4 +584,125 @@ export async function fillAdditionalCustomerInfo(
 ): Promise<boolean> {
   const helper = new SCEHelper();
   return helper.fillAdditionalCustomerInfo(data);
+}
+
+/**
+ * Fill Project Information section
+ * @param data - Project data
+ */
+export async function fillProjectInfo(data: Partial<ProjectInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillProjectInfo(data);
+}
+
+/**
+ * Fill Trade Ally Information section
+ * @param data - Trade ally data
+ */
+export async function fillTradeAllyInfo(data: Partial<TradeAllyInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillTradeAllyInfo(data);
+}
+
+/**
+ * Fill Assessment Questionnaire section
+ * @param data - Assessment data
+ */
+export async function fillAssessmentInfo(data: Partial<AssessmentInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillAssessmentInfo(data);
+}
+
+/**
+ * Fill Household Members section
+ * @param data - Household data
+ */
+export async function fillHouseholdInfo(data: Partial<HouseholdInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillHouseholdInfo(data);
+}
+
+/**
+ * Fill Enrollment Information section
+ * @param data - Enrollment data
+ */
+export async function fillEnrollmentInfo(data: Partial<EnrollmentInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillEnrollmentInfo(data);
+}
+
+/**
+ * Fill Equipment Information section
+ * @param data - Equipment data
+ */
+export async function fillEquipmentInfo(data: Partial<EquipmentInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillEquipmentInfo(data);
+}
+
+/**
+ * Fill Basic Enrollment section
+ * @param data - Basic enrollment data
+ */
+export async function fillBasicEnrollmentInfo(data: Partial<BasicEnrollmentInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillBasicEnrollmentInfo(data);
+}
+
+/**
+ * Fill Bonus Program section
+ * @param data - Bonus data
+ */
+export async function fillBonusInfo(data: Partial<BonusInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillBonusInfo(data);
+}
+
+/**
+ * Fill Terms and Conditions section
+ * @param data - Terms data
+ */
+export async function fillTermsInfo(data: Partial<TermsInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillTermsInfo(data);
+}
+
+/**
+ * Fill Comments section
+ * @param data - Comments data
+ */
+export async function fillCommentsInfo(data: Partial<CommentsInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillCommentsInfo(data);
+}
+
+/**
+ * Fill Status section
+ * @param data - Status data
+ */
+export async function fillStatusInfo(data: Partial<StatusInfo>): Promise<boolean> {
+  const helper = new SCEHelper();
+  return helper.fillStatusInfo(data);
+}
+
+/**
+ * Fill all sections at once
+ * @param sections - All section data
+ */
+export async function fillAllSections(sections: {
+  additionalInfo?: Partial<AdditionalCustomerInfo>;
+  projectInfo?: Partial<ProjectInfo>;
+  tradeAllyInfo?: Partial<TradeAllyInfo>;
+  assessmentInfo?: Partial<AssessmentInfo>;
+  householdInfo?: Partial<HouseholdInfo>;
+  enrollmentInfo?: Partial<EnrollmentInfo>;
+  equipmentInfo?: Partial<EquipmentInfo>;
+  basicEnrollmentInfo?: Partial<BasicEnrollmentInfo>;
+  bonusInfo?: Partial<BonusInfo>;
+  termsInfo?: Partial<TermsInfo>;
+  commentsInfo?: Partial<CommentsInfo>;
+  statusInfo?: Partial<StatusInfo>;
+}): Promise<void> {
+  const helper = new SCEHelper();
+  return helper.fillAllSections(sections);
 }
