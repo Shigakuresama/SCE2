@@ -9,18 +9,6 @@ import { Property, AddressInput } from '../types';
 import { fetchAddressesInBounds, Bounds } from '../lib/overpass';
 import { isApartment } from '../lib/apartment-detector';
 
-// Extend Leaflet types to include Draw
-declare module 'leaflet' {
-  namespace Control {
-    namespace Draw {
-      const Event: {
-        CREATED: string;
-        DELETED: string;
-      };
-    }
-  }
-}
-
 // Fix for default marker icons in react-leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -188,7 +176,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
     if (!map || !featureGroupRef.current) return;
 
     // Add leaflet-draw controls
-    const drawControl = new (L.Control as any).Draw({
+    const drawControl = new L.Control.Draw({
       position: 'topright',
       draw: {
         polygon: false,
@@ -222,21 +210,21 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
 
     map.addControl(drawControl);
 
-    // Disable map dragging when a draw tool is activated
-    map.on((L.Draw as any).Event.ENABLED, () => {
+    // Disable map dragging when a draw tool is activated (using DRAWSTART event)
+    map.on(L.Draw.Event.DRAWSTART, () => {
       map.dragging.disable();
       console.log('[MapLayout] Drawing mode activated - map dragging disabled');
     });
 
-    // Re-enable map dragging when drawing is disabled
-    map.on((L.Draw as any).Event.DISABLED, () => {
+    // Re-enable map dragging when drawing is disabled (using DRAWSTOP event)
+    map.on(L.Draw.Event.DRAWSTOP, () => {
       map.dragging.enable();
       console.log('[MapLayout] Drawing mode deactivated - map dragging enabled');
     });
 
     // Listen for draw:created events
-    map.on((L.Draw as any).Event.CREATED, (e: any) => {
-      const layer = e.layer;
+    map.on(L.Draw.Event.CREATED, (e) => {
+      const layer = (e as L.DrawEvents.Created).layer;
       featureGroupRef.current?.addLayer(layer);
 
       if (layer instanceof L.Rectangle || layer instanceof L.Circle) {
@@ -258,7 +246,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
     });
 
     // Listen for draw:deleted events
-    map.on((L.Draw as any).Event.DELETED, () => {
+    map.on(L.Draw.Event.DELETED, () => {
       setHasSelectedArea(false);
       setCurrentBounds(null);
       setAddressCount(0);
@@ -266,10 +254,10 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
 
     return () => {
       map.removeControl(drawControl);
-      map.off((L.Draw as any).Event.ENABLED);
-      map.off((L.Draw as any).Event.DISABLED);
-      map.off((L.Draw as any).Event.CREATED);
-      map.off((L.Draw as any).Event.DELETED);
+      map.off(L.Draw.Event.DRAWSTART);
+      map.off(L.Draw.Event.DRAWSTOP);
+      map.off(L.Draw.Event.CREATED);
+      map.off(L.Draw.Event.DELETED);
     };
   }, [handleFetchAddresses]);
 
