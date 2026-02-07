@@ -1,0 +1,32 @@
+/* Fix for leaflet-draw icons - make them visible with emoji */
+.leaflet-draw-draw-rectangle::before {
+  content: '⬜';
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  position: relative;
+}
+
+.leaflet-draw-draw-circle::before {
+  content: '⭕';
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  position: relative;
+}
+
+/* Ensure buttons are visible and disable spritesheet background */
+.leaflet-draw-toolbar a {
+  width: 30px !important;
+  height: 30px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #3388ff !important;
+  font-weight: bold;
+  background-image: none !important;
+}

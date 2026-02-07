@@ -6,89 +6,30 @@ import type {
   PropertyFilters,
   Route,
   QueueStatus,
-  ApiResponse,
   AddressInput,
 } from '../types';
 import { config, getCloudUrl } from './config';
+import { createAPIClient, APIError } from './api-client';
 
 /**
- * Custom error class for API-related errors
+ * Re-export APIError for use in other modules
  */
-export class APIError extends Error {
-  constructor(
-    message: string,
-    public statusCode?: number,
-    public response?: ApiResponse<unknown>
-  ) {
-    super(message);
-    this.name = 'APIError';
-  }
-}
+export { APIError };
 
 /**
  * SCE2 API Client
  * Singleton class for communicating with the cloud server
  */
 class SCE2API {
-  private baseUrl: string;
+  private request: <T>(endpoint: string, options?: RequestInit) => Promise<T>;
 
   constructor() {
-    this.baseUrl = getCloudUrl(config.API_BASE_URL);
-  }
-
-  /**
-   * Core request method - wraps fetch with error handling
-   */
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    const token = localStorage.getItem('token');
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
-    };
-
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      });
-
-      const data: ApiResponse<T> = await response.json();
-
-      if (!response.ok) {
-        // Extract error message from object or string
-        const errorMessage = typeof data.error === 'string'
-          ? data.error
-          : (typeof data.error === 'object' && data.error && 'message' in data.error)
-            ? (data.error as { message: string }).message
-            : `HTTP ${response.status}: ${response.statusText}`;
-        throw new APIError(errorMessage, response.status, data);
-      }
-
-      if (!data.success) {
-        const errorMessage = typeof data.error === 'string'
-          ? data.error
-          : (typeof data.error === 'object' && data.error && 'message' in data.error)
-            ? (data.error as { message: string }).message
-            : 'Request failed';
-        throw new APIError(errorMessage, undefined, data);
-      }
-
-      return data.data;
-    } catch (error) {
-      if (error instanceof APIError) throw error;
-      throw new APIError(
-        error instanceof Error ? error.message : 'Unknown error occurred'
-      );
-    }
+    const baseUrl = getCloudUrl(config.API_BASE_URL);
+    const client = createAPIClient({
+      baseURL: baseUrl,
+      includeAuth: true, // Enable authorization token support
+    });
+    this.request = client.request;
   }
 
   // ============= Properties =============

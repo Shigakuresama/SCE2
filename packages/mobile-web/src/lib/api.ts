@@ -3,62 +3,20 @@ import type {
   MobilePropertyData,
   FieldDataSubmission,
   DocumentUpload,
-  ApiResponse,
 } from '../types';
-
-class APIError extends Error {
-  constructor(
-    message: string,
-    public statusCode?: number,
-    public response?: any
-  ) {
-    super(message);
-    this.name = 'APIError';
-  }
-}
+import { getCloudUrl } from './config';
+import { createAPIClient, APIError } from '../../../webapp/src/lib/api-client';
 
 class MobileAPI {
-  private baseURL: string;
+  private request: <T>(endpoint: string, options?: RequestInit) => Promise<T>;
 
   constructor() {
-    // Use environment variable or default to localhost
-    this.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3333';
-  }
-
-  private async request<T>(
-    endpoint: string,
-    options?: RequestInit
-  ): Promise<T> {
-    const url = `${this.baseURL}${endpoint}`;
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options?.headers,
-        },
-      });
-
-      const data: ApiResponse<T> = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new APIError(
-          data.message || data.error || 'Request failed',
-          response.status,
-          data
-        );
-      }
-
-      return data.data as T;
-    } catch (error) {
-      if (error instanceof APIError) {
-        throw error;
-      }
-      throw new APIError(
-        error instanceof Error ? error.message : 'Network error'
-      );
-    }
+    const baseUrl = getCloudUrl('/api');
+    const client = createAPIClient({
+      baseURL: baseUrl,
+      includeAuth: false, // No authorization needed for mobile
+    });
+    this.request = client.request;
   }
 
   // Fetch property data for mobile view
@@ -96,4 +54,6 @@ class MobileAPI {
 
 // Singleton instance
 export const mobileAPI = new MobileAPI();
+
+// Re-export APIError for use in other modules
 export { APIError };

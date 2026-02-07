@@ -7,6 +7,58 @@ import type { Property } from '../types';
 import { getCloudUrl } from './config';
 
 /**
+ * Test customer data for PDF generation
+ * Used when real customer data is missing from properties
+ */
+const TEST_CUSTOMERS = [
+  { name: 'Maria Garcia', phone: '(714) 555-0101' },
+  { name: 'Chen Wei', phone: '(714) 555-0102' },
+  { name: 'James Rodriguez', phone: '(714) 555-0103' },
+  { name: 'Sarah Smith', phone: '(714) 555-0104' },
+  { name: 'David Kim', phone: '(714) 555-0105' },
+  { name: 'Patricia O\'Brien', phone: '(714) 555-0106' },
+  { name: 'Robert Johnson', phone: '(714) 555-0107' },
+  { name: 'Jennifer Lee', phone: '(714) 555-0108' },
+  { name: 'Michael Williams', phone: '(714) 555-0109' },
+  { name: 'Linda Martinez', phone: '(714) 555-0110' },
+];
+
+/**
+ * Enrich properties with test data where customer data is missing
+ *
+ * @param properties - Properties to enrich
+ * @returns Enriched properties with test data flag
+ */
+function enrichWithTestData(properties: Property[]): (Property & { _usesTestData?: boolean })[] {
+  let testDataUsed = false;
+
+  const enriched = properties.map((prop, index) => {
+    const needsName = !prop.customerName || prop.customerName?.trim() === '';
+    const needsPhone = !prop.customerPhone || prop.customerPhone?.trim() === '';
+
+    if (needsName || needsPhone) {
+      testDataUsed = true;
+      const testData = TEST_CUSTOMERS[index % TEST_CUSTOMERS.length];
+
+      return {
+        ...prop,
+        customerName: needsName ? testData.name : prop.customerName,
+        customerPhone: needsPhone ? testData.phone : prop.customerPhone,
+      };
+    }
+
+    return prop;
+  });
+
+  // If test data was used, add flag
+  if (testDataUsed) {
+    (enriched as any)._usesTestData = true;
+  }
+
+  return enriched;
+}
+
+/**
  * Options for PDF generation
  */
 export interface PDFGenerationOptions {
@@ -32,6 +84,10 @@ export async function generateRouteSheet(
     notes = '',
   } = options;
 
+  // Enrich with test data if needed
+  const enrichedProperties = enrichWithTestData(properties);
+  const usesTestData = (enrichedProperties as any)._usesTestData;
+
   // Create PDF document (portrait, millimeters, A4)
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -50,6 +106,15 @@ export async function generateRouteSheet(
   doc.text('SCE2 Route Sheet', margin, yPosition);
   yPosition += 10;
 
+  // Add test data watermark if applicable
+  if (usesTestData) {
+    doc.setFontSize(8);
+    doc.setTextColor(200);
+    doc.text('*** TEST DATA ***', margin, yPosition);
+    doc.setTextColor(0);
+    yPosition += 4;
+  }
+
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text(
@@ -58,7 +123,7 @@ export async function generateRouteSheet(
     yPosition
   );
   yPosition += 6;
-  doc.text(`Total Properties: ${properties.length}`, margin, yPosition);
+  doc.text(`Total Properties: ${enrichedProperties.length}`, margin, yPosition);
   yPosition += 10;
 
   // Add notes section if provided
@@ -78,8 +143,8 @@ export async function generateRouteSheet(
   }
 
   // Add properties
-  for (let i = 0; i < properties.length; i++) {
-    const property = properties[i];
+  for (let i = 0; i < enrichedProperties.length; i++) {
+    const property = enrichedProperties[i];
 
     // Check if we need a new page
     if (yPosition > pageHeight - 80) {

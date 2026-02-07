@@ -49,6 +49,110 @@ queueRoutes.post(
   })
 );
 
+// ==========================================
+// ATOMIC QUEUE CLAIM ENDPOINTS (Bug Fix #3)
+// Prevents race conditions where multiple extension instances claim the same job
+// Uses transactions with concurrent update detection
+// ==========================================
+
+// GET /api/queue/scrape-and-claim - Atomically claim a scrape job
+queueRoutes.get('/scrape-and-claim', asyncHandler(async (req, res) => {
+  const now = new Date();
+
+  // Use transaction to atomically find and lock a job
+  const property = await prisma.$transaction(async (tx) => {
+    // Find a property that needs scraping
+    const available = await tx.property.findFirst({
+      where: {
+        status: 'PENDING_SCRAPE',
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
+
+    if (!available) {
+      return null;
+    }
+
+    // Atomically update status to lock it
+    // The WHERE clause includes status check, so if another poll
+    // already claimed it, this update affects 0 rows and returns null
+    return await tx.property.update({
+      where: {
+        id: available.id,
+        status: 'PENDING_SCRAPE', // Ensures status hasn't changed
+      },
+      data: {
+        status: 'SCRAPING_IN_PROGRESS',
+        updatedAt: now,
+      },
+    });
+  });
+
+  if (!property) {
+    return res.json({
+      success: true,
+      data: null,
+      message: 'No properties pending scrape',
+    });
+  }
+
+  logger.info(`Property ${property.id} atomically claimed for scraping`);
+
+  res.json({ success: true, data: property });
+}));
+
+// GET /api/queue/submit-and-claim - Atomically claim a submit job
+queueRoutes.get('/submit-and-claim', asyncHandler(async (req, res) => {
+  const now = new Date();
+
+  const property = await prisma.$transaction(async (tx) => {
+    const available = await tx.property.findFirst({
+      where: {
+        status: 'VISITED',
+      },
+      include: {
+        documents: true,
+      },
+      orderBy: {
+        updatedAt: 'asc',
+      },
+    });
+
+    if (!available) {
+      return null;
+    }
+
+    // Atomically update with status check to prevent races
+    return await tx.property.update({
+      where: {
+        id: available.id,
+        status: 'VISITED',
+      },
+      data: {
+        status: 'SUBMITTING_IN_PROGRESS',
+        updatedAt: now,
+      },
+      include: {
+        documents: true,
+      },
+    });
+  });
+
+  if (!property) {
+    return res.json({
+      success: true,
+      data: null,
+      message: 'No properties ready for submission',
+    });
+  }
+
+  logger.info(`Property ${property.id} atomically claimed for submission`);
+
+  res.json({ success: true, data: property });
+}));
+
 // GET /api/queue/submit - Get property ready for submission
 queueRoutes.get(
   '/submit',

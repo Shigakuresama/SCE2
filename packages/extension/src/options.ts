@@ -1,3 +1,5 @@
+import { loadConfig, saveConfig } from './lib/storage.js';
+
 interface OptionsConfig {
   apiBaseUrl: string;
   pollInterval: number;
@@ -7,30 +9,23 @@ interface OptionsConfig {
   debugMode: boolean;
 }
 
+const DEFAULT_OPTIONS_CONFIG: OptionsConfig = {
+  apiBaseUrl: 'http://localhost:3333',
+  pollInterval: 5000,
+  timeout: 30000,
+  maxConcurrent: 3,
+  autoStart: false,
+  debugMode: false,
+};
+
 // Load configuration
 async function loadOptionsConfig(): Promise<OptionsConfig> {
-  const result = await chrome.storage.sync.get({
-    apiBaseUrl: 'http://localhost:3333',
-    pollInterval: 5000,
-    timeout: 30000,
-    maxConcurrent: 3,
-    autoStart: false,
-    debugMode: false,
-  });
-
-  return {
-    apiBaseUrl: result.apiBaseUrl,
-    pollInterval: result.pollInterval,
-    timeout: result.timeout,
-    maxConcurrent: result.maxConcurrent,
-    autoStart: result.autoStart,
-    debugMode: result.debugMode,
-  };
+  return loadConfig<OptionsConfig>(DEFAULT_OPTIONS_CONFIG);
 }
 
 // Save configuration
 async function saveOptionsConfig(config: Partial<OptionsConfig>): Promise<void> {
-  await chrome.storage.sync.set(config);
+  await saveConfig(config);
 }
 
 // Show status message

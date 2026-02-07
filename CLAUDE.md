@@ -194,6 +194,49 @@ chrome.tabs.sendMessage(tabId, { action: 'SCRAPE_PROPERTY', data });
 chrome.runtime.sendMessage({ action: 'JOB_COMPLETE', data });
 ```
 
+**Async Response Pattern:**
+```typescript
+// Background sends message and waits for response
+chrome.tabs.sendMessage(tabId, { action: 'SCRAPE', data }, (response) => {
+  if (chrome.runtime.lastError) {
+    // Handle error
+  }
+  console.log(response.data);
+});
+
+// Content script must return true to keep channel open
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'SCRAPE') {
+    performScrape().then(sendResponse);
+    return true; // Required for async response
+  }
+});
+```
+
+### File Upload Handling
+
+**Client-side (webapp/extension):**
+```typescript
+const formData = new FormData();
+formData.append('file', fileBlob);
+formData.append('docType', 'BILL');
+formData.append('propertyId', '123');
+
+await fetch('/api/documents', {
+  method: 'POST',
+  body: formData,
+});
+```
+
+**Server-side (cloud-server):**
+```typescript
+import multer from 'multer';
+
+// Upload middleware configured in src/routes/uploads.ts
+// Files stored in UPLOAD_DIR (default: ./uploads)
+// Multer handles multipart/form-data parsing
+```
+
 ## Key Files Reference
 
 ### Cloud Server
@@ -201,15 +244,41 @@ chrome.runtime.sendMessage({ action: 'JOB_COMPLETE', data });
 - `src/index.ts` - Server entry point, middleware setup
 - `src/lib/database.ts` - Prisma singleton, connection management
 - `src/lib/logger.ts` - Winston logging configuration
+- `src/lib/config.ts` - Environment variable config with defaults
 - `prisma/schema.prisma` - Database schema (source of truth!)
 - `src/routes/` - API route handlers
+  - `index.ts` - Route registration and health check
+  - `properties.ts` - Property CRUD operations
+  - `queue.ts` - Scrape/submit queue endpoints
+  - `uploads.ts` - Document upload handling
+  - `routes.ts` - Route management (planning groups)
+- `src/middleware/errorHandler.ts` - Global error handling, async wrapper
 
 ### Extension
 
 - `src/background.ts` - Service worker, queue polling, orchestration
 - `src/content.ts` - SCE website interaction (form filling, data extraction)
 - `src/lib/sce-helper.ts` - Reusable form interaction methods
+- `src/lib/utils.ts` - Utility functions
 - `manifest.json` - Extension configuration (not in src/)
+- `tests/integration.test.ts` - API integration tests
+
+### Webapp
+
+- `src/App.tsx` - React Router setup, main routes
+- `src/contexts/AppContext.tsx` - Global state management
+- `src/pages/` - Page components (Dashboard, Properties, Queue, Settings)
+- `src/components/` - Reusable components
+  - `MapLayout.tsx` - Leaflet map for address selection
+  - `PDFGenerator.tsx` - PDF generation with QR codes
+  - `QueueStatus.tsx` - Real-time queue monitoring
+- `vite.config.ts` - Vite bundler configuration
+
+### Mobile Web
+
+- Similar structure to webapp
+- Focused on field data entry, photo capture
+- No map/PDF components (uses QR codes instead)
 
 ## Environment Configuration
 
@@ -227,16 +296,66 @@ BASE_URL="https://your-domain.com"
 
 **No code changes required** - just update `.env`!
 
+### Development Ports
+
+| Service | Port | URL |
+|---------|------|-----|
+| Cloud Server | 3333 | http://localhost:3333 |
+| Webapp | 5173 | http://localhost:5173 |
+| Mobile Web | 5174 | http://localhost:5174 |
+
+### Extension Permissions
+
+The extension requires these permissions in `manifest.json`:
+- `activeTab` - Access current tab for scraping
+- `scripting` - Inject content scripts dynamically
+- `storage` - Store configuration in chrome.storage
+- `tabs` - Open/manage tabs for queue processing
+- Host permissions for SCE website and local API
+
+## Property Workflow and Status Transitions
+
+Properties progress through these statuses:
+
+```
+PENDING_SCRAPE → READY_FOR_FIELD → VISITED → READY_FOR_SUBMISSION → COMPLETE
+                                      ↓
+                                   FAILED
+```
+
+**Status Descriptions:**
+- `PENDING_SCRAPE` - Initial state, awaiting extension scrape
+- `READY_FOR_FIELD` - Customer data scraped, ready for field visit
+- `VISITED` - Field data collected (age, notes, photos)
+- `READY_FOR_SUBMISSION` - All data complete, ready to submit to SCE
+- `COMPLETE` - Successfully submitted to SCE
+- `FAILED` - Error occurred during workflow
+
+**Queue Processing:**
+- Extension polls `GET /api/queue/scrape` for next scrape job
+- Extension polls `GET /api/queue/submit` for next submit job
+- Jobs automatically filtered by status in API routes
+
 ## Testing
 
+### Cloud Server Tests
 ```bash
-# Unit tests (Vitest)
-npm test --workspace=packages/cloud-server
-
-# Integration tests (Playwright)
 cd packages/cloud-server
-npm run test:e2e
+npm test                       # Run Vitest tests
+npm run test:watch             # Watch mode
 ```
+
+### Extension Tests
+```bash
+cd packages/extension
+npm test                       # Run integration tests
+```
+
+**Prerequisites:** Cloud server must be running on `:3333` for extension integration tests.
+
+### Test File Locations
+- `packages/extension/tests/integration.test.ts` - API integration tests
+- No tests exist yet for cloud-server (placeholder returns exit 0)
 
 ## Deployment
 
@@ -293,3 +412,52 @@ lsof -i :3333 | awk 'NR>1 {print $2}' | xargs kill
 # Delete journal files
 rm packages/cloud-server/*.sqlite-journal
 ```
+
+## Important Gotchas
+
+### Prisma Client Generation
+After any schema change, you **must** regenerate the Prisma client:
+```bash
+cd packages/cloud-server
+npm run db:generate    # Generates @prisma/client
+```
+If you don't, TypeScript types will be out of sync with the database.
+
+### Extension Build Process
+The build process copies non-TS files **then** compiles TypeScript:
+```bash
+npm run build:copy     # Copy manifest.json, HTML, icons, lib/*.js
+npm run build:compile  # Compile src/*.ts → dist/*.js
+```
+**Common mistake:** Editing files in `dist/` instead of `src/`. Always edit source files.
+
+### CORS Configuration
+When adding new client origins, update `.env`:
+```bash
+ALLOWED_ORIGINS="http://localhost:5173,http://localhost:5174,chrome-extension://*"
+```
+The wildcard `chrome-extension://*` matches all extension instances.
+
+### Queue Polling Interval
+Extension background script polls every 5 seconds by default. This is configured in:
+- `packages/extension/src/background.ts` - `pollInterval` in config
+- Can be overridden via extension options page
+
+### Status String Validation
+SQLite doesn't support enums, so status values are **strings**. Valid values:
+```typescript
+type PropertyStatus =
+  | 'PENDING_SCRAPE'
+  | 'READY_FOR_FIELD'
+  | 'VISITED'
+  | 'READY_FOR_SUBMISSION'
+  | 'COMPLETE'
+  | 'FAILED';
+```
+No database-level validation - validate in application code.
+
+### File Upload Limits
+- Default max size: 10MB (configurable via `MAX_FILE_SIZE` env var)
+- Files stored in `packages/cloud-server/uploads/`
+- Multer middleware handles multipart form data
+- Document records track metadata (type, filename, size)

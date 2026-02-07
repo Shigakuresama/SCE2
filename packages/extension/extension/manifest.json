@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "SCE2 Rebate Automation",
+  "version": "1.0.0",
+  "description": "Automated SCE rebate form filling with cloud integration",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://sce.dsmcentral.com/*",
+    "http://localhost:3333/*",
+    "https://*.digitalocean.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://sce.dsmcentral.com/*"],
+      "js": ["lib/sce-helper.js", "lib/utils.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["lib/*"],
+      "matches": ["https://sce.dsmcentral.com/*"]
+    }
+  ]
+}
