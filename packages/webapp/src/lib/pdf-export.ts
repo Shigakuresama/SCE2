@@ -9,6 +9,7 @@ import type { Property } from '../types';
 export interface FieldValidationResult {
   valid: boolean;
   error?: string;
+  userMessage?: string;
 }
 
 /**
@@ -72,6 +73,7 @@ export function validateAge(value: string | number | null | undefined): FieldVal
     return {
       valid: false,
       error: 'Age must be a valid number',
+      userMessage: 'Please enter a valid number for age',
     };
   }
 
@@ -80,6 +82,7 @@ export function validateAge(value: string | number | null | undefined): FieldVal
     return {
       valid: false,
       error: 'Age must be between 0 and 150',
+      userMessage: 'Age must be between 0 and 150',
     };
   }
 
@@ -105,6 +108,7 @@ export function validateNotes(value: any): FieldValidationResult {
     return {
       valid: false,
       error: 'Notes must be 500 characters or less',
+      userMessage: `Notes too long (${notesValue.length}/500 characters)`,
     };
   }
 
@@ -132,6 +136,57 @@ export function validateFormField(
     valid: false,
     error: `Unknown field type: ${fieldType}`,
   };
+}
+
+/**
+ * Validates a form field based on its field name
+ * This is a convenience function for UI components that use field names
+ *
+ * @param fieldName - Field name in format "property_{id}_{type}" or ending with "_age" or "_notes"
+ * @param value - Field value to validate
+ * @returns Validation result with user-friendly error message
+ */
+export function validateFormFieldByName(
+  fieldName: string,
+  value: string
+): { valid: boolean; error?: string; userMessage?: string } {
+  // Age field validation
+  if (fieldName.endsWith('_age')) {
+    if (!value || value.trim() === '') {
+      return {
+        valid: true, // Empty is allowed (optional field)
+      };
+    }
+
+    const age = parseInt(value, 10);
+    if (isNaN(age)) {
+      return {
+        valid: false,
+        error: 'Age must be a number',
+        userMessage: 'Please enter a valid number for age',
+      };
+    }
+    if (age < 0 || age > 150) {
+      return {
+        valid: false,
+        error: 'Age must be between 0 and 150',
+        userMessage: 'Age must be between 0 and 150',
+      };
+    }
+  }
+
+  // Notes field validation
+  if (fieldName.endsWith('_notes')) {
+    if (value.length > 500) {
+      return {
+        valid: false,
+        error: 'Notes must be 500 characters or less',
+        userMessage: `Notes too long (${value.length}/500 characters)`,
+      };
+    }
+  }
+
+  return { valid: true };
 }
 
 /**

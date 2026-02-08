@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { generateRouteSheet } from '../lib/pdf-generator';
-import { extractPDFDataToProperties } from '../lib/pdf-export';
+import { extractPDFDataToProperties, validateFormFieldByName } from '../lib/pdf-export';
 import type { Property } from '../types';
 
 interface PDFGeneratorProps {
@@ -20,7 +20,9 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
   const [notes, setNotes] = useState('');
   // Form data state - will be populated by PDF viewer in future implementation
   // For now, the export functionality provides infrastructure for data sync
-  const [formData] = useState<Record<string, string>>({});
+  const [formData, setFormData] = useState<Record<string, string>>({});
+  // Validation errors state
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleGenerate = async () => {
     try {
@@ -86,6 +88,36 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
       alert('Failed to export form data');
     }
   };
+
+  const handleFormFieldChange = (fieldName: string, value: string) => {
+    // Validate field
+    const validation = validateFormFieldByName(fieldName, value);
+    if (!validation.valid) {
+      setErrors(prev => ({
+        ...prev,
+        [fieldName]: validation.userMessage || 'Invalid value'
+      }));
+      return;
+    }
+
+    // Clear error for this field
+    setErrors(prev => {
+      const newErrors = { ...prev };
+      delete newErrors[fieldName];
+      return newErrors;
+    });
+
+    // Update form data state
+    setFormData(prev => ({
+      ...prev,
+      [fieldName]: value
+    }));
+  };
+
+  // Export handler for use by PDF viewer or form components
+  // This function will be used when form fields are added to the UI
+  // Currently prepared for future integration
+  (window as any).handleFormFieldChange = handleFormFieldChange;
 
   const propertyCount =
     selectedProperties.length > 0
@@ -161,6 +193,18 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
             placeholder="Add any notes for the route sheet (e.g., special instructions, reminders, etc.)"
           />
         </div>
+
+        {/* Error display */}
+        {Object.keys(errors).length > 0 && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded">
+            <h3 className="text-red-800 font-semibold mb-2">Please fix the following errors:</h3>
+            <ul className="list-disc list-inside text-red-700">
+              {Object.entries(errors).map(([fieldName, message]) => (
+                <li key={fieldName}>{message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Generate button */}
         <div className="flex justify-end gap-3">
