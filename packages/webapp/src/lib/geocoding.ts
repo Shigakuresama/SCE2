@@ -100,10 +100,18 @@ export async function searchAddress(query: string): Promise<SearchResult | null>
 
 /**
  * Extract street number from display name or address object.
+ * Handles both "22003 Street Name" and "22003, Street Name" formats.
  */
 export function extractStreetNumber(displayName: string): string {
-  const match = displayName.match(/^(\d+)\s/);
-  return match ? match[1] : '';
+  // Try space-separated format first: "22003 W Martha Ln"
+  let match = displayName.match(/^(\d+)\s/);
+  if (match) return match[1];
+
+  // Try comma-separated format: "22003, Seine Avenue"
+  match = displayName.match(/^(\d+),/);
+  if (match) return match[1];
+
+  return '';
 }
 
 /**

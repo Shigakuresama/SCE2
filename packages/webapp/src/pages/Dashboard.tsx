@@ -41,13 +41,13 @@ export const Dashboard: React.FC = () => {
       const result = await searchAddress(searchQuery);
 
       if (result) {
-        // Extract address components
+        // Extract address components - use address object when available
         const address: AddressInput = {
-          streetNumber: extractStreetNumber(result.display_name),
-          streetName: extractStreetName(result.display_name),
-          city: result.address.city || result.address.town || result.address.village || 'Santa Ana',
+          streetNumber: result.address.house_number || extractStreetNumber(result.display_name),
+          streetName: result.address.road || extractStreetName(result.display_name),
+          city: result.address.city || result.address.town || result.address.village || result.address.county || 'Santa Ana',
           state: result.address.state || 'CA',
-          zipCode: extractZipCode(result),
+          zipCode: result.address.postcode || extractZipCode(result),
           addressFull: result.display_name,
           latitude: result.lat,
           longitude: result.lon,
