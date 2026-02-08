@@ -181,9 +181,8 @@ export async function generateRouteSheet(
         doc.setLineWidth(0.5);
         doc.rect(x, y, cellWidth, cellHeight);
 
-        // QR Code for mobile access (top-right corner, drawn first so it's behind other content)
-        const qrSize = 35;
-        const contentWidth = includeQR ? cellWidth - qrSize - 6 : cellWidth - 6;
+        // SMALL QR Code for mobile access (top-right corner)
+        const qrSize = 20; // Much smaller QR code
 
         if (includeQR) {
           try {
@@ -199,91 +198,52 @@ export async function generateRouteSheet(
             const qrY = y + 3;
 
             doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
-
-            // "Scan" label below QR
-            doc.setFontSize(6);
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(150, 150, 150);
-            const qrLabel = 'Scan me';
-            const qrLabelWidth = (doc.getStringUnitWidth(qrLabel) * 6) / doc.internal.scaleFactor;
-            doc.text(
-              qrLabel,
-              qrX + (qrSize - qrLabelWidth) / 2,
-              qrY + qrSize + 3
-            );
-            doc.setTextColor(0);
           } catch (error) {
             console.error('Failed to generate QR code:', error);
-
-            // Add visual indicator that QR code is missing
-            const qrX = x + cellWidth - qrSize - 3;
-            const qrY = y + 3;
-
-            // Draw error box
-            doc.setDrawColor(200, 0, 0);
-            doc.setFillColor(255, 240, 240);
-            doc.roundedRect(qrX, qrY, qrSize, qrSize, 2, 2, 'FD');
-
-            // Add error text
-            doc.setTextColor(200, 0, 0);
-            doc.setFontSize(5);
-            doc.setFont('helvetica', 'bold');
-            doc.text('[QR ERROR]', qrX + qrSize / 2, qrY + qrSize / 2, { align: 'center' });
-
-            // Reset colors
-            doc.setTextColor(0);
-            doc.setDrawColor(0);
           }
         }
 
-        let xPos = x + 4;
+        // Content positioning - full width available
+        const xPos = x + 4;
+        const contentWidth = cellWidth - 8; // Full width with small margins
         let yPos = y + 7;
 
-        // Property number (small, subtle in corner)
-        doc.setTextColor(150, 150, 150);
-        doc.setFontSize(7);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`#${index + 1}`, x + cellWidth - 12, y + 5);
-        doc.setTextColor(0);
-
-        // Address (prominent at top, larger font, more spacing)
-        doc.setFontSize(11);
+        // Property number (prominent at top)
+        doc.setTextColor(100, 100, 100);
+        doc.setFontSize(14);
         doc.setFont('helvetica', 'bold');
-        const addressMaxWidth = contentWidth - 4;
-        const addressLines = doc.splitTextToSize(property.addressFull, addressMaxWidth);
+        doc.text(`#${index + 1}`, xPos, yPos);
+        yPos += 8;
 
-        // Show first line of address
-        const displayAddress = addressLines[0] || property.addressFull;
-        doc.text(displayAddress.substring(0, 55), xPos, yPos);
-        yPos += Math.max(9, addressLines.length * 5);
+        // Address (prominent below number)
+        doc.setTextColor(0);
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        const addressLines = doc.splitTextToSize(property.addressFull, contentWidth);
+        doc.text(addressLines, xPos, yPos);
+        yPos += addressLines.length * 6 + 4;
 
-        // Separator line
-        doc.setDrawColor(220, 220, 220);
-        doc.setLineWidth(0.3);
-        doc.line(xPos, yPos, xPos + contentWidth, yPos);
-        yPos += 7;
-
-        // Customer name (below separator, larger font)
+        // Customer name (below address)
         if (includeCustomerData && property.customerName) {
-          doc.setFontSize(10);
+          doc.setFontSize(11);
           doc.setFont('helvetica', 'bold');
           doc.text(property.customerName, xPos, yPos);
           yPos += 6;
         }
 
-        // Customer phone (smaller, below name, more spacing)
+        // Customer phone (below name)
         if (includeCustomerData && property.customerPhone) {
-          doc.setFontSize(9);
+          doc.setFontSize(10);
           doc.setFont('helvetica', 'normal');
-          doc.setTextColor(100, 100, 100);
+          doc.setTextColor(80, 80, 80);
           doc.text(property.customerPhone, xPos, yPos);
           doc.setTextColor(0);
-          yPos += 7;
+          yPos += 8;
         } else if (!includeCustomerData) {
-          yPos += 5;
+          yPos += 6;
         }
 
-        // Age field (small, compact, on left)
+        // Age field (compact, on left)
         const ageFieldName = generateFieldName(property.id, 'age');
         const ageValue = property.customerAge?.toString() || '';
         addTextField(doc, 'AGE:', {
@@ -291,31 +251,38 @@ export async function generateRouteSheet(
           value: ageValue,
           x: xPos,
           y: yPos,
-          width: 18,
+          width: 20,
           height: 7,
           fontSize: 9,
           maxLength: 3,
         });
         yPos += 11;
 
-        // Notes field (VERY wide, takes almost all available space)
+        // Notes field - FULL WIDTH of grid cell
         const notesFieldName = generateFieldName(property.id, 'notes');
-        const notesHeight = 35; // Taller for more text
-        const notesWidth = includeQR ? cellWidth - qrSize - 4 : cellWidth - 4; // Minimal margin
+        const remainingHeight = y + cellHeight - yPos - 14; // Leave room for dropdown
         addTextareaField(doc, 'NOTES:', {
           name: notesFieldName,
           value: property.fieldNotes || '',
           x: xPos,
           y: yPos,
-          width: notesWidth,
-          height: notesHeight,
-          fontSize: 9, // Larger font for readability
+          width: contentWidth, // FULL WIDTH - not avoiding QR code
+          height: remainingHeight,
+          fontSize: 9,
         });
 
-        // Visit Status dropdown at bottom
+        // Visit Status dropdown at bottom RIGHT with colored background
         const visitStatusFieldName = generateFieldName(property.id, 'visitStatus');
-        const statusY = y + cellHeight - 12;
-        addComboBox(doc, 'VISIT STATUS:', {
+        const dropdownWidth = 50;
+        const dropdownHeight = 8;
+        const dropdownX = x + cellWidth - dropdownWidth - 4;
+        const dropdownY = y + cellHeight - dropdownHeight - 4;
+
+        // Draw colored background for dropdown area (light gray to stand out)
+        doc.setFillColor(245, 245, 245);
+        doc.roundedRect(dropdownX - 2, dropdownY - 1, dropdownWidth + 4, dropdownHeight + 3, 2, 2, 'F');
+
+        addComboBox(doc, 'STATUS:', {
           name: visitStatusFieldName,
           value: 'Not Visited',
           options: [
@@ -326,11 +293,11 @@ export async function generateRouteSheet(
             'Follow Up Required',
             'Complete',
           ],
-          x: xPos,
-          y: statusY,
-          width: contentWidth,
-          height: 8,
-          fontSize: 8,
+          x: dropdownX,
+          y: dropdownY,
+          width: dropdownWidth,
+          height: dropdownHeight,
+          fontSize: 7,
         });
       }
     }
