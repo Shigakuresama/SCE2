@@ -194,8 +194,19 @@ propertyRoutes.delete(
 propertyRoutes.delete(
   '/:id',
   asyncHandler(async (req, res) => {
+    const id = parseInt(req.params.id);
+
+    // Check if property exists first
+    const property = await prisma.property.findUnique({
+      where: { id },
+    });
+
+    if (!property) {
+      throw new NotFoundError('Property', req.params.id);
+    }
+
     await prisma.property.delete({
-      where: { id: parseInt(req.params.id) },
+      where: { id },
     });
 
     res.json({ success: true, message: 'Property deleted' });

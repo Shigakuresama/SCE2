@@ -22,11 +22,11 @@ export interface SearchResult {
  *
  * Tries different variations of the address query:
  * 1. Exact query (as provided)
- * 2. Query + ", Santa Ana, CA"
- * 3. Query + ", CA"
- * 4. Query with "Ave" instead of "Ln" + ", Santa Ana, CA"
+ * 2. Query + ", USA" (country filter)
+ * 3. Query + ", CA, USA"
+ * 4. Query with "Ave" instead of "Ln" + ", CA, USA"
  *
- * @param query - Address search query (e.g., "1909 W Martha Ln")
+ * @param query - Address search query (e.g., "1909 W Martha Ln" or "22003 seine 90716")
  * @returns SearchResult if found, null otherwise
  */
 export async function searchAddress(query: string): Promise<SearchResult | null> {
@@ -36,20 +36,30 @@ export async function searchAddress(query: string): Promise<SearchResult | null>
     return null;
   }
 
+  // Check if query contains a ZIP code (5 digits) - if so, we're more specific
+  const hasZipCode = /\b\d{5}\b/.test(trimmedQuery);
+  const hasStreetType = /\s(st|street|ave|avenue|blvd|boulevard|ln|lane|dr|drive|way|road|ct|court|pl|place|cir|circle)\b/i.test(trimmedQuery);
+
   // Multiple search strategies with fallbacks
   const strategies: string[] = [
+    // Strategy 0: Original query with country filter (most specific first)
+    `${trimmedQuery}, USA`,
+
     // Strategy 1: Original query (exact match)
     trimmedQuery,
 
-    // Strategy 2: Add Santa Ana, CA if no city/state detected
-    `${trimmedQuery}, Santa Ana, CA`,
+    // Strategy 2: If it has a ZIP but no street type, it's probably "number street zip"
+    // Try adding "Ave" as default street type
+    hasZipCode && !hasStreetType ? `${trimmedQuery.replace(/(\d{5})$/, 'Ave $1')}, USA` : null,
 
-    // Strategy 3: Add CA if just street + city
-    `${trimmedQuery}, CA`,
+    // Strategy 3: Add CA, USA if no state detected
+    !trimmedQuery.includes(', CA') && !trimmedQuery.includes(', California')
+      ? `${trimmedQuery}, CA, USA`
+      : null,
 
-    // Strategy 4: Try with "Ave" if "Ln" or no street type
-    trimmedQuery.replace(/\s(Ln|Lane)\s*$/i, 'Ave') + ', Santa Ana, CA',
-  ];
+    // Strategy 4: Try with "Ave" instead of "Ln" + ", CA, USA"
+    trimmedQuery.replace(/\s(Ln|Lane)\s*$/i, 'Ave') + ', CA, USA',
+  ].filter(Boolean) as string[];
 
   for (const searchQuery of strategies) {
     try {
