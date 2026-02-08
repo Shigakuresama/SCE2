@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import type { Property } from '../types';
 import { getMobileUrl } from './config';
 import { optimizeRoute, groupIntoPages } from './route-optimizer';
+import { addTextField, addTextareaField, generateFieldName } from './acroform-fields';
 
 /**
  * Test customer data for PDF generation
@@ -65,75 +66,6 @@ export interface PDFGenerationOptions {
   notes?: string;
   startLat?: number;
   startLon?: number;
-}
-
-/**
- * Draw a fillable-style field box (visual only, to be filled by hand)
- * Similar to IRS W-2 form fields
- */
-function drawFieldBox(
-  doc: jsPDF,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  label: string,
-  value: string
-): void {
-  // Draw field border
-  doc.setDrawColor(150, 150, 150);
-  doc.setLineWidth(0.3);
-  doc.rect(x, y, width, height, 'S');
-
-  // Draw label above field
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
-  doc.text(label, x, y - 2);
-
-  // Draw value inside field
-  if (value) {
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(value, x + 2, y + height / 2 + 2);
-  }
-}
-
-/**
- * Draw a multiline notes box
- */
-function drawNotesBox(
-  doc: jsPDF,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  label: string,
-  value: string
-): void {
-  // Draw field border
-  doc.setDrawColor(150, 150, 150);
-  doc.setLineWidth(0.3);
-  doc.rect(x, y, width, height, 'S');
-
-  // Draw label above field
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
-  doc.text(label, x, y - 2);
-
-  // Draw value inside field (word wrapped)
-  if (value) {
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'normal');
-    const lines = doc.splitTextToSize(value, width - 4);
-    doc.text(lines.slice(0, 4), x + 2, y + 5);
-  } else {
-    // Draw placeholder lines
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.2);
-    for (let i = 0; i < 4; i++) {
-      doc.line(x + 2, y + 5 + i * 5, x + width - 2, y + 5 + i * 5);
-    }
-  }
 }
 
 /**
@@ -259,23 +191,34 @@ export async function generateRouteSheet(
           }
         }
 
-        // Fillable-style AGE field (like IRS W-2)
+        // Fillable AGE field (AcroForm)
+        const ageFieldName = generateFieldName(property.id, 'age');
         const ageValue = property.customerAge?.toString() || '';
-        drawFieldBox(doc, x + 3, yPos, 25, 8, 'AGE:', ageValue);
+        addTextField(doc, 'AGE:', {
+          name: ageFieldName,
+          value: ageValue,
+          x: x + 3,
+          y: yPos,
+          width: 25,
+          height: 8,
+          fontSize: 10,
+          maxLength: 3,
+        });
         yPos += 14;
 
-        // Fillable-style NOTES field (like IRS W-2)
+        // Fillable NOTES field (AcroForm textarea)
+        const notesFieldName = generateFieldName(property.id, 'notes');
         const notesHeight = 28;
         const notesWidth = cellWidth - 48;
-        drawNotesBox(
-          doc,
-          x + 3,
-          yPos,
-          notesWidth,
-          notesHeight,
-          'NOTES:',
-          property.fieldNotes || ''
-        );
+        addTextareaField(doc, 'NOTES:', {
+          name: notesFieldName,
+          value: property.fieldNotes || '',
+          x: x + 3,
+          y: yPos,
+          width: notesWidth,
+          height: notesHeight,
+          fontSize: 8,
+        });
 
         // QR Code for mobile access (right side of cell)
         if (includeQR) {
