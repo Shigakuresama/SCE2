@@ -1,19 +1,16 @@
 // ============= PDF Generation =============
-// Complete rewrite with all requirements:
-// - Editable phone number with "Corrected" checkbox
-// - Global property numbering (continues across pages)
-// - Small dropdown at bottom right
-// - Improved aesthetics
+// Generate 3x3 grid route sheets with AGE/NOTES display fields and QR codes
 
 import jsPDF from 'jspdf';
 import QRCode from 'qrcode';
 import type { Property } from '../types';
 import { getMobileUrl } from './config';
 import { optimizeRoute, groupIntoPages } from './route-optimizer';
-import { addTextField, addTextareaField, addComboBox, addCheckbox, generateFieldName } from './acroform-fields';
+import { addTextField, addTextareaField, addComboBox, generateFieldName } from './acroform-fields';
 
 /**
  * Test customer data for PDF generation
+ * Used when real customer data is missing from properties
  */
 const TEST_CUSTOMERS = [
   { name: 'Maria Garcia', phone: '(714) 555-0101', age: 45 },
@@ -27,6 +24,9 @@ const TEST_CUSTOMERS = [
   { name: 'Michael Williams', phone: '(714) 555-0109', age: 48 },
 ];
 
+/**
+ * Enrich properties with test data where customer data is missing
+ */
 function enrichWithTestData(properties: Property[]): (Property & { _usesTestData?: boolean })[] {
   let testDataUsed = false;
 
@@ -57,6 +57,9 @@ function enrichWithTestData(properties: Property[]): (Property & { _usesTestData
   return enriched;
 }
 
+/**
+ * Options for PDF generation
+ */
 export interface PDFGenerationOptions {
   includeQR?: boolean;
   includeCustomerData?: boolean;
@@ -65,6 +68,14 @@ export interface PDFGenerationOptions {
   startLon?: number;
 }
 
+/**
+ * Generate a 3x3 grid route sheet PDF
+ * Properties are optimized for route order and arranged in a 3x3 grid per page
+ *
+ * @param properties - Array of properties to include in the PDF
+ * @param options - PDF generation options
+ * @returns Promise that resolves when PDF is generated and saved
+ */
 export async function generateRouteSheet(
   properties: Property[],
   options: PDFGenerationOptions = {}
@@ -76,6 +87,7 @@ export async function generateRouteSheet(
     startLon,
   } = options;
 
+  // Input validation
   if (!properties || !Array.isArray(properties)) {
     throw new Error('Properties must be an array');
   }
@@ -84,6 +96,7 @@ export async function generateRouteSheet(
     throw new Error('At least one property is required to generate PDF');
   }
 
+  // Validate each property has required fields
   for (let i = 0; i < properties.length; i++) {
     const prop = properties[i];
     if (!prop || typeof prop !== 'object') {
@@ -97,25 +110,29 @@ export async function generateRouteSheet(
     }
   }
 
+  // Optimize route order
   const optimizedProperties = optimizeRoute(properties, startLat, startLon);
+
+  // Enrich with test data if needed
   const enrichedProperties = enrichWithTestData(optimizedProperties);
   const usesTestData = (enrichedProperties as any)._usesTestData;
+
+  // Group into pages of 9 (3x3 grid)
   const pages = groupIntoPages(enrichedProperties);
 
+  // Create PDF document (portrait, millimeters, Letter)
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
     format: 'letter',
   });
 
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
+  const pageWidth = doc.internal.pageSize.getWidth(); // 216mm for Letter
+  const pageHeight = doc.internal.pageSize.getHeight(); // 279mm for Letter
   const margin = 10;
   const headerHeight = 25;
 
-  // Track global property index for continuing numbering across pages
-  let globalPropertyIndex = 0;
-
+  // Generate each page
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
     if (pageIndex > 0) {
       doc.addPage();
@@ -123,36 +140,23 @@ export async function generateRouteSheet(
 
     const pageProperties = pages[pageIndex];
 
-    // Add header with blue accent
-    doc.setFillColor(59, 130, 246);
-    doc.rect(margin, 10, pageWidth - 2 * margin, 0.5, 'F');
-    doc.rect(margin, 10, 3, 15, 'F');
-
-    doc.setFontSize(18);
+    // Add header
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(255, 255, 255);
-    doc.text('SCE2', margin + 5, 15);
-    doc.setTextColor(0);
+    doc.text('SCE2 Route Sheet', margin, 15);
 
-    doc.setFontSize(14);
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text('Route Sheet', margin + 18, 15);
-
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 100, 100);
     doc.text(
-      `Page ${pageIndex + 1} of ${pages.length} | ${new Date().toLocaleDateString()}`,
-      pageWidth - margin - 5,
-      15,
-      { align: 'right' }
+      `Page ${pageIndex + 1} of ${pages.length} | Generated: ${new Date().toLocaleDateString()}`,
+      margin,
+      20
     );
-    doc.setTextColor(0);
 
     if (usesTestData && pageIndex === 0) {
       doc.setTextColor(200, 100, 100);
-      doc.setFontSize(7);
-      doc.text('*** TEST DATA ***', pageWidth - margin - 30, 20);
+      doc.setFontSize(8);
+      doc.text('*** CONTAINS TEST DATA ***', pageWidth - margin - 45, 20);
       doc.setTextColor(0);
     }
 
@@ -167,24 +171,22 @@ export async function generateRouteSheet(
         const index = row * gridCols + col;
         const property = pageProperties[index];
 
-        if (!property) {
-          globalPropertyIndex++;
-          continue;
-        }
+        if (!property) continue;
 
         const x = margin + col * cellWidth;
         const y = headerHeight + row * cellHeight;
 
-        // Draw cell border with subtle styling
-        doc.setDrawColor(220, 220, 220);
+        // Draw cell border
+        doc.setDrawColor(200, 200, 200);
         doc.setLineWidth(0.5);
         doc.rect(x, y, cellWidth, cellHeight);
 
-        // QR Code (small, top-right)
-        const qrSize = 18;
+        // SMALL QR Code for mobile access (top-right corner)
+        const qrSize = 20; // Much smaller QR code
 
         if (includeQR) {
           try {
+            // Use mobile URL with query parameter for property ID
             const mobileUrl = getMobileUrl(`/?propertyId=${property.id}`);
             const qrDataUrl = await QRCode.toDataURL(mobileUrl, {
               width: 80,
@@ -192,70 +194,56 @@ export async function generateRouteSheet(
               errorCorrectionLevel: 'L',
             });
 
-            doc.addImage(qrDataUrl, 'PNG', x + cellWidth - qrSize - 3, y + 3, qrSize, qrSize);
+            const qrX = x + cellWidth - qrSize - 3;
+            const qrY = y + 3;
+
+            doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
           } catch (error) {
             console.error('Failed to generate QR code:', error);
           }
         }
 
+        // Content positioning - account for QR code on right
         const xPos = x + 4;
-        const contentWidth = includeQR ? cellWidth - qrSize - 6 : cellWidth - 8;
+        const contentWidth = includeQR ? cellWidth - qrSize - 6 : cellWidth - 8; // Leave room for QR code
         let yPos = y + 7;
 
-        // Property number (GLOBAL - continues across pages)
-        doc.setTextColor(100, 100, 100);
-        doc.setFontSize(8);
+        // Property number (smaller, in corner)
+        doc.setTextColor(120, 120, 120);
+        doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
-        doc.text(`#${globalPropertyIndex + 1}`, xPos, yPos);
-        yPos += 5;
+        doc.text(`#${index + 1}`, xPos, yPos);
+        yPos += 6;
 
-        // Address
+        // Address (smaller to avoid QR code overlap)
         doc.setTextColor(0);
-        doc.setFontSize(9);
+        doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         const addressLines = doc.splitTextToSize(property.addressFull, contentWidth);
         doc.text(addressLines, xPos, yPos);
-        yPos += addressLines.length * 4 + 2;
+        yPos += addressLines.length * 5 + 3;
 
-        // Customer name
+        // Customer name (LARGER, below address)
         if (includeCustomerData && property.customerName) {
-          doc.setFontSize(12);
+          doc.setFontSize(13);
           doc.setFont('helvetica', 'bold');
           doc.text(property.customerName, xPos, yPos);
+          yPos += 7;
+        }
+
+        // Customer phone (LARGER, below name)
+        if (includeCustomerData && property.customerPhone) {
+          doc.setFontSize(12);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(60, 60, 60);
+          doc.text(property.customerPhone, xPos, yPos);
+          doc.setTextColor(0);
+          yPos += 7;
+        } else if (!includeCustomerData) {
           yPos += 5;
         }
 
-        // Phone number - EDITABLE with checkbox
-        if (includeCustomerData && property.customerPhone) {
-          const phoneFieldName = generateFieldName(property.id, 'phone');
-          addTextField(doc, '', {
-            name: phoneFieldName,
-            value: property.customerPhone,
-            x: xPos,
-            y: yPos,
-            width: 45,
-            height: 6,
-            fontSize: 9,
-            maxLength: 20,
-          });
-
-          const phoneCheckboxName = generateFieldName(property.id, 'phoneCorrected');
-          addCheckbox(doc, {
-            name: phoneCheckboxName,
-            value: false,
-            x: xPos + 48,
-            y: yPos + 1,
-            width: 4,
-            height: 4,
-            label: 'Fixed',
-          });
-
-          yPos += 9;
-        } else if (!includeCustomerData) {
-          yPos += 4;
-        }
-
-        // Age field (compact, label on left)
+        // Age field (label NEXT to field, not above)
         const ageFieldName = generateFieldName(property.id, 'age');
         const ageValue = property.customerAge?.toString() || '';
         addTextField(doc, 'AGE:', {
@@ -263,70 +251,54 @@ export async function generateRouteSheet(
           value: ageValue,
           x: xPos,
           y: yPos,
-          width: 18,
-          height: 6,
-          fontSize: 8,
+          width: 25,
+          height: 8,
+          fontSize: 10,
           maxLength: 3,
-          labelPosition: 'left',
+          labelPosition: 'left', // Label to the LEFT of the field
         });
-        yPos += 10;
+        yPos += 12;
 
-        // Notes field - FULL WIDTH
+        // Notes field - FULL WIDTH of entire grid cell (under QR code too)
         const notesFieldName = generateFieldName(property.id, 'notes');
-        const notesHeight = y + cellHeight - yPos - 10;
+        const remainingHeight = y + cellHeight - yPos - 4; // Use all remaining space
         addTextareaField(doc, 'NOTES:', {
           name: notesFieldName,
           value: property.fieldNotes || '',
-          x: x + 4,
+          x: x + 4, // Start from left edge of cell
           y: yPos,
-          width: cellWidth - 8,
-          height: notesHeight,
-          fontSize: 8,
+          width: cellWidth - 8, // FULL WIDTH of cell (not avoiding QR)
+          height: remainingHeight,
+          fontSize: 9,
         });
-
-        // Small status dropdown at bottom right
-        const visitStatusFieldName = generateFieldName(property.id, 'visitStatus');
-        const dropdownWidth = 32;
-        const dropdownHeight = 5;
-        const dropdownX = x + cellWidth - dropdownWidth - 4;
-        const dropdownY = y + cellHeight - dropdownHeight - 3;
-
-        addComboBox(doc, '', {
-          name: visitStatusFieldName,
-          value: 'Pending',
-          options: ['Pending', 'No Home', 'Not Int\'d', 'Follow', 'Done'],
-          x: dropdownX,
-          y: dropdownY,
-          width: dropdownWidth,
-          height: dropdownHeight,
-          fontSize: 5,
-        });
-
-        globalPropertyIndex++;
       }
     }
   }
 
-  // Footer
+  // Add page numbers footer
   const totalPages = doc.internal.pages.length - 1;
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    doc.setFontSize(7);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(180, 180, 180);
+    doc.setTextColor(150);
     doc.text(
-      `SCE2 Rebate Automation • Scan QR codes with mobile app`,
+      `Page ${i} of ${totalPages} | Scan QR codes with mobile app`,
       pageWidth / 2,
-      pageHeight - 4,
+      pageHeight - 5,
       { align: 'center' }
     );
     doc.setTextColor(0);
   }
 
+  // Save PDF with timestamp
   const timestamp = Date.now();
   doc.save(`sce2-route-${timestamp}.pdf`);
 }
 
+/**
+ * Generate a PDF for a single property
+ */
 export async function generatePropertyPDF(
   property: Property,
   options: PDFGenerationOptions = {}
@@ -334,5 +306,8 @@ export async function generatePropertyPDF(
   return generateRouteSheet([property], options);
 }
 
+/**
+ * Export utilities
+ */
 export { calculateDistance, calculateTotalDistance, optimizeRoute } from './route-optimizer';
 export type { Property } from '../types';

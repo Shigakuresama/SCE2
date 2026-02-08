@@ -223,6 +223,58 @@ export function addComboBox(
 }
 
 /**
+ * Interface for checkbox options
+ */
+export interface CheckboxOptions {
+  name: string;
+  value: boolean; // Default checked state
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label?: string; // Optional label text
+}
+
+/**
+ * Add a checkbox to PDF
+ */
+export function addCheckbox(
+  doc: jsPDF,
+  options: CheckboxOptions
+): void {
+  const {
+    name,
+    value,
+    x,
+    y,
+    width,
+    height,
+    label
+  } = options;
+
+  // Draw optional label
+  if (label) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(60, 60, 60);
+    doc.text(label, x + width + 3, y + height / 2 + 2);
+    doc.setTextColor(0);
+  }
+
+  // Create AcroForm checkbox using jsPDF API
+  // @ts-ignore - jsPDF types don't include AcroForm but it exists at runtime
+  const checkbox = new doc.AcroForm.CheckBox();
+  checkbox.fieldName = name;
+  checkbox.value = value ? 'Yes' : 'Off'; // AcroForm uses 'Yes'/'Off' for checkboxes
+  checkbox.x = x;
+  checkbox.y = y;
+  checkbox.width = width;
+  checkbox.height = height;
+
+  doc.addField(checkbox);
+}
+
+/**
  * Generate unique field name for property
  * Format: "property_{propertyId}_{fieldName}"
  */
