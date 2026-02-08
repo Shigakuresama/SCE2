@@ -341,13 +341,18 @@ function MapController({
       map.on('mousemove', handleCircleMove);
     }
 
-    // Cleanup
+    // Cleanup - only remove listeners that were actually added
     return () => {
-      map.off('click', handleRectangleClick);
-      map.off('mousemove', handleRectangleMove);
-      map.off('click', handleCircleClick);
-      map.off('mousemove', handleCircleMove);
-      mapContainer.style.cursor = '';
+      if (drawMode === 'rectangle') {
+        map.off('click', handleRectangleClick);
+        map.off('mousemove', handleRectangleMove);
+      } else if (drawMode === 'circle') {
+        map.off('click', handleCircleClick);
+        map.off('mousemove', handleCircleMove);
+      }
+      if (mapContainer.style.cursor === 'crosshair') {
+        mapContainer.style.cursor = '';
+      }
     };
   }, [map, drawMode, onDrawComplete]);
 
@@ -477,13 +482,24 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
     console.log('[MapLayout] Geocoded address:', address);
 
     // Create marker (will be added when map ref is available)
+    const markerId = `marker-${Date.now()}`;
     const marker = L.marker([lat, lng], { icon: pinIcon });
     marker.bindPopup(`
       <div style="min-width: 200px;">
         <strong>📍 ${address.streetNumber} ${address.streetName}</strong><br/>
-        ${address.city}, ${address.state} ${address.zipCode}
+        ${address.city}, ${address.state} ${address.zipCode}<br/>
+        <button
+          data-marker-id="${markerId}"
+          style="margin-top: 8px; padding: 4px 12px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;"
+          onclick="window.sce2DeleteMarker && window.sce2DeleteMarker('${markerId}')"
+        >
+          🗑️ Delete Pin
+        </button>
       </div>
     `);
+
+    // Store marker ID on the marker object for lookup
+    (marker as any).markerId = markerId;
 
     setClickMarkers((prev) => [...prev, marker]);
 
@@ -528,6 +544,25 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
     clickMarkers.forEach((marker) => marker.remove());
     setClickMarkers([]);
   };
+
+  // Set up global delete handler for markers
+  useEffect(() => {
+    // @ts-ignore - Adding custom function to window
+    window.sce2DeleteMarker = (markerId: string) => {
+      setClickMarkers((prev) => {
+        const markerToDelete = prev.find((m) => (m as any).markerId === markerId);
+        if (markerToDelete) {
+          markerToDelete.remove();
+        }
+        return prev.filter((m) => (m as any).markerId !== markerId);
+      });
+    };
+
+    return () => {
+      // @ts-ignore - Cleanup
+      delete window.sce2DeleteMarker;
+    };
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -587,12 +622,23 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
                         mapInstance.setView([lat, lon], 17);
 
                         // Create marker
+                        const markerId = `marker-${Date.now()}`;
                         const marker = L.marker([lat, lon], { icon: pinIcon });
                         marker.bindPopup(`
                           <div style="min-width: 200px;">
-                            <strong>📍 ${result.display_name}</strong>
+                            <strong>📍 ${result.display_name}</strong><br/>
+                            <button
+                              data-marker-id="${markerId}"
+                              style="margin-top: 8px; padding: 4px 12px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;"
+                              onclick="window.sce2DeleteMarker && window.sce2DeleteMarker('${markerId}')"
+                            >
+                              🗑️ Delete Pin
+                            </button>
                           </div>
                         `).addTo(mapInstance);
+
+                        // Store marker ID on the marker object for lookup
+                        (marker as any).markerId = markerId;
 
                         setClickMarkers((prev) => [...prev, marker]);
 
@@ -816,13 +862,6 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
             </Marker>
           );
         })}
-
-        {/* Show click markers */}
-        {clickMarkers.map((marker, index) => (
-          <Marker key={index} position={marker.getLatLng()} icon={pinIcon}>
-            <Popup>{String(marker.getPopup()?.getContent() || '')}</Popup>
-          </Marker>
-        ))}
       </MapContainer>
 
       {/* Address Selection Manager */}

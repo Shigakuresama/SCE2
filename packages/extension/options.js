@@ -1,4 +1,30 @@
 "use strict";
+
+// Tab switching functionality
+function initTabs() {
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const targetTab = tab.getAttribute('data-tab');
+
+            // Remove active class from all tabs
+            tabs.forEach(t => t.classList.remove('active'));
+            tabContents.forEach(tc => tc.classList.remove('active'));
+
+            // Add active class to clicked tab
+            tab.classList.add('active');
+
+            // Show corresponding content
+            const targetContent = document.getElementById(targetTab);
+            if (targetContent) {
+                targetContent.classList.add('active');
+            }
+        });
+    });
+}
+
 // Load configuration
 async function loadConfig() {
     const result = await chrome.storage.sync.get({
@@ -33,6 +59,9 @@ function showStatus(message, isError = false) {
 }
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
+    // Initialize tabs first
+    initTabs();
+
     const config = await loadConfig();
     // Populate form
     document.getElementById('api-url').value = config.apiBaseUrl;
