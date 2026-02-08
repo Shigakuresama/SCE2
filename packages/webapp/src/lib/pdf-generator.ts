@@ -181,69 +181,10 @@ export async function generateRouteSheet(
         doc.setLineWidth(0.5);
         doc.rect(x, y, cellWidth, cellHeight);
 
-        // Property number (small in corner)
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`#${index + 1}`, x + 3, y + 6);
+        // QR Code for mobile access (top-right corner, drawn first so it's behind other content)
+        const qrSize = 35;
+        const contentWidth = includeQR ? cellWidth - qrSize - 6 : cellWidth - 6;
 
-        // Address (truncated if needed)
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'bold');
-        const maxWidth = cellWidth - 50;
-        const addressLines = doc.splitTextToSize(property.addressFull, maxWidth);
-        const displayAddress = addressLines[0] || property.addressFull;
-
-        // Add address
-        doc.text(displayAddress.substring(0, 45), x + 3, y + 12);
-
-        let yPos = y + 20;
-
-        // Customer info
-        if (includeCustomerData) {
-          doc.setFontSize(7);
-          doc.setFont('helvetica', 'normal');
-
-          if (property.customerName) {
-            doc.text(`Name: ${property.customerName}`, x + 3, yPos);
-            yPos += 4;
-          }
-
-          if (property.customerPhone) {
-            doc.text(`Phone: ${property.customerPhone}`, x + 3, yPos);
-            yPos += 4;
-          }
-        }
-
-        // Fillable AGE field (AcroForm)
-        const ageFieldName = generateFieldName(property.id, 'age');
-        const ageValue = property.customerAge?.toString() || '';
-        addTextField(doc, 'AGE:', {
-          name: ageFieldName,
-          value: ageValue,
-          x: x + 3,
-          y: yPos,
-          width: 25,
-          height: 8,
-          fontSize: 10,
-          maxLength: 3,
-        });
-        yPos += 14;
-
-        // Fillable NOTES field (AcroForm textarea)
-        const notesFieldName = generateFieldName(property.id, 'notes');
-        const notesHeight = 28;
-        const notesWidth = cellWidth - 48;
-        addTextareaField(doc, 'NOTES:', {
-          name: notesFieldName,
-          value: property.fieldNotes || '',
-          x: x + 3,
-          y: yPos,
-          width: notesWidth,
-          height: notesHeight,
-          fontSize: 8,
-        });
-
-        // QR Code for mobile access (right side of cell)
         if (includeQR) {
           try {
             // Use mobile URL with query parameter for property ID
@@ -254,7 +195,6 @@ export async function generateRouteSheet(
               errorCorrectionLevel: 'L',
             });
 
-            const qrSize = 35;
             const qrX = x + cellWidth - qrSize - 3;
             const qrY = y + 3;
 
@@ -263,6 +203,7 @@ export async function generateRouteSheet(
             // "Scan" label below QR
             doc.setFontSize(6);
             doc.setFont('helvetica', 'normal');
+            doc.setTextColor(150, 150, 150);
             const qrLabel = 'Scan me';
             const qrLabelWidth = (doc.getStringUnitWidth(qrLabel) * 6) / doc.internal.scaleFactor;
             doc.text(
@@ -270,11 +211,11 @@ export async function generateRouteSheet(
               qrX + (qrSize - qrLabelWidth) / 2,
               qrY + qrSize + 3
             );
+            doc.setTextColor(0);
           } catch (error) {
             console.error('Failed to generate QR code:', error);
 
             // Add visual indicator that QR code is missing
-            const qrSize = 35;
             const qrX = x + cellWidth - qrSize - 3;
             const qrY = y + 3;
 
@@ -294,6 +235,81 @@ export async function generateRouteSheet(
             doc.setDrawColor(0);
           }
         }
+
+        let xPos = x + 3;
+        let yPos = y + 6;
+
+        // Property number (small, subtle in corner)
+        doc.setTextColor(150, 150, 150);
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`#${index + 1}`, x + cellWidth - 12, y + 5);
+        doc.setTextColor(0);
+
+        // Address (prominent at top, larger font)
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        const addressMaxWidth = contentWidth - 6;
+        const addressLines = doc.splitTextToSize(property.addressFull, addressMaxWidth);
+
+        // Show first line of address (or first 2 if short enough)
+        const displayAddress = addressLines[0] || property.addressFull;
+        doc.text(displayAddress.substring(0, 55), xPos, yPos);
+        yPos += Math.max(7, addressLines.length * 4);
+
+        // Separator line
+        doc.setDrawColor(220, 220, 220);
+        doc.setLineWidth(0.3);
+        doc.line(xPos, yPos, xPos + contentWidth, yPos);
+        yPos += 5;
+
+        // Customer name (below separator)
+        if (includeCustomerData && property.customerName) {
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'bold');
+          doc.text(property.customerName, xPos, yPos);
+          yPos += 5;
+        }
+
+        // Customer phone (smaller, below name)
+        if (includeCustomerData && property.customerPhone) {
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(100, 100, 100);
+          doc.text(property.customerPhone, xPos, yPos);
+          doc.setTextColor(0);
+          yPos += 6;
+        } else if (!includeCustomerData) {
+          yPos += 4;
+        }
+
+        // Age field (small, compact, on left)
+        const ageFieldName = generateFieldName(property.id, 'age');
+        const ageValue = property.customerAge?.toString() || '';
+        addTextField(doc, 'AGE:', {
+          name: ageFieldName,
+          value: ageValue,
+          x: xPos,
+          y: yPos,
+          width: 20,
+          height: 7,
+          fontSize: 9,
+          maxLength: 3,
+        });
+
+        // Notes field (much wider, takes remaining space)
+        const notesFieldName = generateFieldName(property.id, 'notes');
+        const notesHeight = 25;
+        const notesWidth = includeQR ? cellWidth - qrSize - 10 : cellWidth - 10;
+        addTextareaField(doc, 'NOTES:', {
+          name: notesFieldName,
+          value: property.fieldNotes || '',
+          x: xPos,
+          y: yPos + 10,
+          width: notesWidth,
+          height: notesHeight,
+          fontSize: 8,
+        });
 
         // Status badge at bottom
         const statusColors: Record<string, [number, number, number]> = {
