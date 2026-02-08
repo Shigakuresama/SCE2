@@ -252,6 +252,11 @@ export function addCheckbox(
     label
   } = options;
 
+  // Draw visible frame/border around checkbox
+  doc.setDrawColor(100, 100, 100);
+  doc.setLineWidth(0.5);
+  doc.rect(x, y, width, height);
+
   // Draw optional label
   if (label) {
     doc.setFontSize(8);
@@ -270,6 +275,11 @@ export function addCheckbox(
   checkbox.y = y;
   checkbox.width = width;
   checkbox.height = height;
+
+  // Set appearance style to show X when checked (not checkmark)
+  // Style 0 = cross, Style 1 = checkmark, Style 2 = circle, Style 3 = star, Style 4 = diamond
+  // @ts-ignore
+  checkbox.style = 0; // Use X (cross) when checked
 
   doc.addField(checkbox);
 }
