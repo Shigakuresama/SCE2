@@ -35,6 +35,12 @@ export const RouteProcessor: React.FC<RouteProcessorProps> = ({
       return;
     }
 
+    // Check if extension is available
+    if (typeof chrome === 'undefined' || !chrome.runtime) {
+      alert('Route processing requires the Chrome Extension to be installed. Please load the SCE2 extension and try again.');
+      return;
+    }
+
     try {
       setProcessing(true);
       setProgress({
@@ -77,7 +83,7 @@ export const RouteProcessor: React.FC<RouteProcessorProps> = ({
         setResults(response.data.results);
         onProcessingComplete(response.data.results);
         onPropertiesUpdated(); // Refresh to show extracted data
-      } else {
+ } else {
         throw new Error(response?.error || 'Processing failed');
       }
 
@@ -91,6 +97,11 @@ export const RouteProcessor: React.FC<RouteProcessorProps> = ({
 
   // Listen for progress updates from extension
   useEffect(() => {
+    // Only set up chrome listener if we're in extension context
+    if (typeof chrome === 'undefined' || !chrome.runtime) {
+      return;
+    }
+
     const handleMessage = (message: any) => {
       if (message.action === 'ROUTE_PROGRESS') {
         setProgress(message.data);
