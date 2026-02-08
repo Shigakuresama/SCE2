@@ -28,9 +28,9 @@ export interface Property {
 
   // Address fields (from Overpass/SCE website)
   addressFull: string;
-  streetNumber: string;
-  streetName: string;
-  zipCode: string;
+  streetNumber: string | null;
+  streetName: string | null;
+  zipCode: string | null;
   city: string | null;
   state: string | null;
   latitude: number | null;
@@ -40,6 +40,11 @@ export interface Property {
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
+
+  // Route extraction metadata (from route processing)
+  dataExtracted?: boolean;
+  extractedAt?: Date | null;
+  screenshotUrl?: string | null;
 
   // Field data (from mobile - Phase 2)
   customerAge: number | null;
@@ -55,6 +60,48 @@ export interface Property {
   documents?: Document[];
   route?: Route;
   routeId: number | null;
+}
+
+// Client-side property type (for creating new properties before server save)
+export interface PropertyInput {
+  id?: number | string;
+  createdAt?: Date;
+  updatedAt?: Date;
+
+  // Address fields (from Overpass/SCE website)
+  addressFull: string;
+  streetNumber?: string | null;
+  streetName?: string | null;
+  zipCode?: string | null;
+  city?: string | null;
+  state?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+
+  // Scraped data (from extension - Phase 1)
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
+
+  // Route extraction metadata (from route processing)
+  dataExtracted?: boolean;
+  extractedAt?: Date | null;
+  screenshotUrl?: string | null;
+
+  // Field data (from mobile - Phase 2)
+  customerAge?: number | null;
+  fieldNotes?: string | null;
+
+  // Submission tracking
+  sceCaseId?: string | null;
+
+  // Status workflow
+  status?: PropertyStatus;
+
+  // Relations
+  documents?: Document[];
+  route?: Route;
+  routeId?: number | null;
 }
 
 export interface Document {
