@@ -26,10 +26,19 @@ export default defineConfig({
     sourcemap: process.env.NODE_ENV === 'development',
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'leaflet-vendor': ['leaflet', 'react-leaflet'],
-          'pdf-vendor': ['jspdf', 'qrcode'],
+        manualChunks(id) {
+          // PDF libraries
+          if (id.includes('node_modules/jspdf') || id.includes('node_modules/qrcode')) {
+            return 'pdf-vendor';
+          }
+          // React libraries
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/react-router')) {
+            return 'react-vendor';
+          }
+          // Leaflet libraries
+          if (id.includes('node_modules/leaflet')) {
+            return 'leaflet-vendor';
+          }
         },
       },
     },

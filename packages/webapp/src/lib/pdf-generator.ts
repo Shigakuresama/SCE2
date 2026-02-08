@@ -6,7 +6,9 @@
 // - Improved aesthetics
 
 import jsPDF from 'jspdf';
-import QRCode from 'qrcode';
+// @ts-ignore - qrcode CommonJS module
+import * as QRCodeNS from 'qrcode';
+const QRCode = (QRCodeNS as any).default || QRCodeNS;
 import type { Property } from '../types';
 import { getMobileUrl } from './config';
 import { optimizeRoute, groupIntoPages } from './route-optimizer';
