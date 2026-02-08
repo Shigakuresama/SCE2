@@ -1,0 +1,597 @@
+/**
+ * SCE2 Extension Banner Styles
+ * Floating banner for SCE form automation
+ */
+
+/* ============================================
+   BANNER CONTAINER
+   ============================================ */
+
+.sce2-banner {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999998;
+  background: linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+  padding: 20px;
+  min-width: 600px;
+  max-width: 800px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  animation: sce2-banner-slide-down 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.sce2-banner[data-state="filling"] {
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  border-color: #2196f3;
+}
+
+.sce2-banner[data-state="success"] {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  border-color: #4caf50;
+  animation: sce2-banner-bounce 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.sce2-banner[data-state="error"] {
+  background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+  border-color: #f44336;
+  animation: sce2-banner-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+.sce2-banner[data-state="stopped"] {
+  background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%);
+  border-color: #9e9e9e;
+}
+
+/* ============================================
+   BANNER HEADER
+   ============================================ */
+
+.sce2-banner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.sce2-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.sce2-banner-title-icon {
+  font-size: 20px;
+}
+
+.sce2-banner[data-state="filling"] .sce2-banner-title-icon {
+  animation: sce2-pulse 1.5s ease-in-out infinite;
+}
+
+.sce2-banner-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s;
+  color: #666;
+  font-size: 20px;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.sce2-banner-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.sce2-banner-close:focus {
+  outline: 2px solid #2196f3;
+  outline-offset: 2px;
+}
+
+/* ============================================
+   BANNER CONTENT
+   ============================================ */
+
+.sce2-banner-content {
+  margin-bottom: 16px;
+}
+
+.sce2-banner-message {
+  font-size: 14px;
+  color: #424242;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ============================================
+   BANNER PROGRESS BAR
+   ============================================ */
+
+.sce2-banner-progress {
+  display: none;
+  margin-bottom: 16px;
+}
+
+.sce2-banner[data-state="filling"] .sce2-banner-progress {
+  display: block;
+}
+
+.sce2-banner-progress-bar {
+  height: 6px;
+  background: rgba(33, 150, 243, 0.2);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.sce2-banner-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2196f3 0%, #1976d2 100%);
+  border-radius: 3px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.sce2-banner-progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: sce2-progress-shine 1.5s ease-in-out infinite;
+}
+
+.sce2-banner-progress-text {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #666;
+}
+
+.sce2-banner-progress-section {
+  font-weight: 500;
+  color: #1976d2;
+}
+
+/* ============================================
+   BANNER BUTTONS
+   ============================================ */
+
+.sce2-banner-buttons {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.sce2-banner-buttons[data-mode="filling"] {
+  justify-content: space-between;
+}
+
+.sce2-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.sce2-btn:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.sce2-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Primary button */
+.sce2-btn-primary {
+  background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+  color: white;
+  box-shadow: 0 2px 4px rgba(33, 150, 243, 0.3);
+}
+
+.sce2-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  box-shadow: 0 4px 8px rgba(33, 150, 243, 0.4);
+  transform: translateY(-1px);
+}
+
+.sce2-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(33, 150, 243, 0.3);
+}
+
+/* Secondary button */
+.sce2-btn-secondary {
+  background: linear-gradient(135deg, #66bb6a 0%, #4caf50 100%);
+  color: white;
+  box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+}
+
+.sce2-btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+  box-shadow: 0 4px 8px rgba(76, 175, 80, 0.4);
+  transform: translateY(-1px);
+}
+
+.sce2-btn-secondary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+}
+
+/* Stop button */
+.sce2-btn-stop {
+  background: linear-gradient(135deg, #ef5350 0%, #f44336 100%);
+  color: white;
+  box-shadow: 0 2px 4px rgba(244, 67, 54, 0.3);
+  animation: sce2-pulse 2s ease-in-out infinite;
+}
+
+.sce2-btn-stop:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f44336 0%, #e53935 100%);
+  box-shadow: 0 4px 8px rgba(244, 67, 54, 0.4);
+  transform: translateY(-1px);
+}
+
+.sce2-btn-stop:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(244, 67, 54, 0.3);
+}
+
+/* Button states */
+.sce2-btn[data-state="success"] {
+  background: linear-gradient(135deg, #66bb6a 0%, #4caf50 100%);
+  color: white;
+}
+
+.sce2-btn[data-state="error"] {
+  background: linear-gradient(135deg, #ef5350 0%, #f44336 100%);
+  color: white;
+  animation: sce2-banner-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+/* ============================================
+   BANNER SPINNER
+   ============================================ */
+
+.sce2-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: sce2-spin 0.8s linear infinite;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+@keyframes sce2-banner-slide-down {
+  from {
+    transform: translateX(-50%) translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sce2-banner-bounce {
+  0%, 20%, 40%, 60%, 80% {
+    transform: translateX(-50%) translateY(0);
+  }
+  10% {
+    transform: translateX(-50%) translateY(-10px);
+  }
+  30% {
+    transform: translateX(-50%) translateY(5px);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-3px);
+  }
+  70% {
+    transform: translateX(-50%) translateY(2px);
+  }
+  90% {
+    transform: translateX(-50%) translateY(-1px);
+  }
+}
+
+@keyframes sce2-banner-shake {
+  0%, 100% {
+    transform: translateX(-50%) translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-50%) translateX(-5px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(-50%) translateX(5px);
+  }
+}
+
+@keyframes sce2-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes sce2-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sce2-progress-shine {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes sce2-ellipsis {
+  0%, 20% {
+    content: '.';
+  }
+  40% {
+    content: '..';
+  }
+  60%, 100% {
+    content: '...';
+  }
+}
+
+/* ============================================
+   TOAST STYLES (included for completeness)
+   ============================================ */
+
+.sce2-toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.sce2-toast {
+  pointer-events: auto;
+  min-width: 300px;
+  max-width: 500px;
+  padding: 16px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: sce2-toast-slide-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1a1a1a;
+}
+
+.sce2-toast.removing {
+  animation: sce2-toast-slide-out 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.sce2-toast-success {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  border-left: 4px solid #4caf50;
+}
+
+.sce2-toast-error {
+  background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+  border-left: 4px solid #f44336;
+}
+
+.sce2-toast-info {
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  border-left: 4px solid #2196f3;
+}
+
+.sce2-toast-warning {
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+  border-left: 4px solid #ff9800;
+}
+
+.sce2-toast-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  border-radius: 50%;
+}
+
+.sce2-toast-success .sce2-toast-icon {
+  background: #4caf50;
+  color: white;
+}
+
+.sce2-toast-error .sce2-toast-icon {
+  background: #f44336;
+  color: white;
+}
+
+.sce2-toast-info .sce2-toast-icon {
+  background: #2196f3;
+  color: white;
+}
+
+.sce2-toast-warning .sce2-toast-icon {
+  background: #ff9800;
+  color: white;
+}
+
+.sce2-toast-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.sce2-toast-message {
+  word-wrap: break-word;
+}
+
+.sce2-toast-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.2s;
+  color: #666;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.sce2-toast-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+@keyframes sce2-toast-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sce2-toast-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* ============================================
+   RESPONSIVE DESIGN
+   ============================================ */
+
+@media (max-width: 768px) {
+  .sce2-banner {
+    min-width: 0;
+    max-width: none;
+    left: 10px;
+    right: 10px;
+    top: 10px;
+    transform: none;
+    padding: 16px;
+  }
+
+  @keyframes sce2-banner-slide-down {
+    from {
+      transform: translateY(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .sce2-banner-buttons {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .sce2-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .sce2-toast-container {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+  }
+
+  .sce2-toast {
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+/* ============================================
+   ACCESSIBILITY
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .sce2-banner,
+  .sce2-toast,
+  .sce2-btn,
+  .sce2-banner-progress-fill,
+  .sce2-banner-title-icon,
+  .sce2-btn-stop {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Focus visible for keyboard navigation */
+.sce2-btn:focus-visible {
+  outline: 3px solid #2196f3;
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .sce2-banner {
+    border: 2px solid currentColor;
+  }
+
+  .sce2-toast {
+    border: 2px solid currentColor;
+  }
+}

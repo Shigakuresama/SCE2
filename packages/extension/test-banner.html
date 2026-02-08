@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCE2 Banner Test Page</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .test-section {
+      border: 1px solid #ddd;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+    }
+
+    .sections-menu {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .sections-menu-item {
+      padding: 10px 15px;
+      background: #f5f5f5;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .sections-menu-item:hover {
+      background: #e0e0e0;
+    }
+
+    .sections-menu-item.active {
+      background: #2196f3;
+      color: white;
+    }
+
+    .sections-menu-item__title {
+      font-weight: 500;
+    }
+
+    .form-content {
+      margin-top: 20px;
+      padding: 20px;
+      background: #fafafa;
+      border-radius: 8px;
+    }
+
+    .form-field {
+      margin: 10px 0;
+    }
+
+    .form-field label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+
+    .form-field input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+
+    .test-controls {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: white;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .test-controls h3 {
+      margin-top: 0;
+      font-size: 14px;
+    }
+
+    .test-controls button {
+      display: block;
+      width: 100%;
+      margin: 5px 0;
+      padding: 8px;
+      background: #2196f3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .test-controls button:hover {
+      background: #1976d2;
+    }
+
+    .test-status {
+      margin-top: 10px;
+      padding: 10px;
+      background: #e3f2fd;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>SCE2 Banner Test Page</h1>
+  <p>This page simulates the SCE rebate form website for testing the extension banner.</p>
+
+  <div class="test-controls">
+    <h3>Test Controls</h3>
+    <button onclick="queueTestData()">Queue Test Data (Auto-show)</button>
+    <button onclick="clearQueuedData()">Clear Queued Data</button>
+    <div class="test-status" id="test-status">Status: Ready</div>
+  </div>
+
+  <div class="test-section">
+    <h2>SCE Form Sections</h2>
+    <p>Click on a section to navigate (simulates SCE menu):</p>
+
+    <div class="sections-menu">
+      <div class="sections-menu-item active" data-section="Customer Information">
+        <span class="sections-menu-item__title">Customer Information</span>
+      </div>
+      <div class="sections-menu-item" data-section="Additional Customer Information">
+        <span class="sections-menu-item__title">Additional Customer Information</span>
+      </div>
+      <div class="sections-menu-item" data-section="Enrollment Information">
+        <span class="sections-menu-item__title">Enrollment Information</span>
+      </div>
+      <div class="sections-menu-item" data-section="Project Information">
+        <span class="sections-menu-item__title">Project Information</span>
+      </div>
+    </div>
+
+    <div class="form-content">
+      <h3 id="current-section">Customer Information</h3>
+      <div class="form-field">
+        <label>First Name</label>
+        <input type="text" name="firstName" placeholder="Enter first name">
+      </div>
+      <div class="form-field">
+        <label>Last Name</label>
+        <input type="text" name="lastName" placeholder="Enter last name">
+      </div>
+      <div class="form-field">
+        <label>Phone</label>
+        <input type="tel" name="phone" placeholder="Enter phone number">
+      </div>
+      <div class="form-field">
+        <label>Email</label>
+        <input type="email" name="email" placeholder="Enter email">
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Simulate SCE website section menu
+    const menuItems = document.querySelectorAll('.sections-menu-item');
+    const sectionTitle = document.getElementById('current-section');
+
+    menuItems.forEach(item => {
+      item.addEventListener('click', () => {
+        // Remove active class from all
+        menuItems.forEach(i => i.classList.remove('active'));
+        // Add to clicked
+        item.classList.add('active');
+        // Update title
+        const title = item.querySelector('.sections-menu-item__title').textContent;
+        sectionTitle.textContent = title;
+      });
+    });
+
+    // Test controls
+    function updateStatus(message) {
+      document.getElementById('test-status').textContent = 'Status: ' + message;
+    }
+
+    function queueTestData() {
+      const testData = {
+        propertyId: 123,
+        firstName: 'Test',
+        lastName: 'User',
+        phone: '555-1234',
+        email: 'test@example.com',
+        address: '123 Test St',
+        zipCode: '92706'
+      };
+
+      chrome.storage.local.set({ queuedProperty: testData }, () => {
+        updateStatus('Test data queued! Reload page to see banner auto-show.');
+      });
+    }
+
+    function clearQueuedData() {
+      chrome.storage.local.remove(['queuedProperty'], () => {
+        updateStatus('Queued data cleared!');
+      });
+    }
+
+    // Check if we're on SCE-like URL
+    if (!window.location.href.includes('sce.dsmcentral.com')) {
+      updateStatus('WARNING: Not on sce.dsmcentral.com - update URL for full testing');
+    }
+  </script>
+</body>
+</html>

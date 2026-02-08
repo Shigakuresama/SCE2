@@ -36,6 +36,11 @@ SCE2 is a **cloud-hybrid rebate automation platform** that unifies the fragmente
 ✅ **Comprehensive Options Page** - 980 lines, 18 tabs matching SCE1
 ✅ **Multi-Method Address Selection** - Draw on map, address range, import list, pin mode, database
 ✅ **Route Processing System** - Extract customer data from SCE via extension
+✅ **Form Automation Banner** - Floating UI for filling SCE forms (all sections or current section)
+  - Auto-shows when queued data exists
+  - Manual trigger via extension icon
+  - Progress tracking, stop functionality, toast notifications
+  - Section navigation orchestration
 
 ## Common Commands
 
@@ -521,7 +526,7 @@ import multer from 'multer';
 
 **Core:**
 - `src/background.ts` - Service worker, queue polling, orchestration
-- `src/content.ts` - SCE website interaction (form filling, data extraction)
+- `src/content.ts` - SCE website interaction (form filling, data extraction, banner integration)
 - `manifest.json` - Extension configuration (not in src/)
 
 **SCE1 Compatibility:**
@@ -531,8 +536,31 @@ import multer from 'multer';
   - Email generation from customer names
   - All field mappings
 
+**Banner & Form Filling:**
+- `src/lib/banner.ts` - **Banner controller** for form automation UI
+  - Auto-shows when queued data exists
+  - Manual trigger via extension icon popup
+  - "Fill All Sections" - Sequentially fills all 18 form sections
+  - "Fill: [Current Section]" - Fills only the active section
+  - Progress bar, stop functionality, error handling
+- `src/lib/toast.ts` - **Toast notification system**
+  - Success, error, info, warning toasts
+  - Auto-dismiss with configurable duration
+  - Action button support
+- `src/lib/fill-orchestrator.ts` - **Multi-section fill orchestration**
+  - Coordinates navigation and filling
+  - Progress tracking and banner updates
+  - Stop flag handling
+- `src/lib/section-navigator.ts` - SPA navigation between form sections
+  - Click section menu items to navigate
+  - Wait for section content to load
+  - Track visited sections
+
 **Helpers:**
 - `src/lib/sce-helper.ts` - Reusable form interaction methods
+  - Fill methods for each section (Customer Info, Project Info, etc.)
+  - Angular Material pattern (focus, click, input events)
+  - Dropdown selection, file upload
 - `src/lib/zillow-client.ts` - Fetches Zillow data via server API
 - `src/lib/utils.ts` - Utility functions
 - `src/lib/storage.ts` - Chrome storage operations
@@ -541,10 +569,26 @@ import multer from 'multer';
 
 **Configuration:**
 - `options.html` - **980-line options page** (18 tabs) with all SCE1 defaults
-- `popup.html` - Quick action popup
+- `popup.html` - Quick action popup with "Show Form Assistant" button
+- `src/assets/banner.css` - Banner and toast styles with animations
 
 **Tests:**
 - `tests/integration.test.ts` - API integration tests
+
+**Banner Usage:**
+```javascript
+// Auto-show banner when data queued
+chrome.storage.local.set({ queuedProperty: propertyData });
+
+// Manual trigger via extension icon
+// User clicks "📋 Show Form Assistant" button in popup
+
+// Message handlers in content.ts:
+// - FILL_ALL_SECTIONS: Fill all 18 sections sequentially
+// - FILL_CURRENT_SECTION: Fill only active section
+// - STOP_FILLING: Stop current fill operation
+// - SHOW_BANNER: Show banner manually
+```
 
 ### Webapp
 

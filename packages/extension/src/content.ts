@@ -26,6 +26,9 @@ import {
   extractCommentsInfo,
   extractStatusInfo,
 } from './lib/sections/sections-extractor.js';
+import { BannerController } from './lib/banner.js';
+import { fillAllSections, fillCurrentSection, resetStopFlag, requestStop } from './lib/fill-orchestrator.js';
+import { SCE1_DEFAULTS } from './lib/sce1-logic.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -749,10 +752,177 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ section });
       break;
 
+    // NEW: Fill all sections
+    case 'FILL_ALL_SECTIONS':
+      handleFillAllSections(sendResponse);
+      return true;
+
+    // NEW: Fill current section
+    case 'FILL_CURRENT_SECTION':
+      handleFillCurrentSection(sendResponse);
+      return true;
+
+    // NEW: Stop filling
+    case 'STOP_FILLING':
+      requestStop();
+      sendResponse({ success: true });
+      return true;
+
+    // NEW: Show banner manually
+    case 'SHOW_BANNER':
+      const banner = (window as any).sce2Banner as BannerController;
+      if (banner) {
+        banner.show();
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false, error: 'Banner not initialized' });
+      }
+      return true;
+
     default:
       sendResponse({ error: 'Unknown action' });
   }
 });
+
+// ==========================================
+// BANNER HANDLERS
+// ==========================================
+
+/**
+ * Handle fill all sections request
+ */
+async function handleFillAllSections(sendResponse: (response: any) => void): Promise<void> {
+  const banner = (window as any).sce2Banner as BannerController;
+
+  if (!banner) {
+    sendResponse({ success: false, error: 'Banner not found' });
+    return;
+  }
+
+  resetStopFlag();
+
+  try {
+    // Get property data from storage or use defaults
+    const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
+
+    // Use queued property data or defaults
+    let propertyData = result.propertyData || {};
+
+    // If we have queued property, use its data
+    if (result.queuedProperty) {
+      propertyData = {
+        ...propertyData,
+        ...result.queuedProperty,
+      };
+
+      // Clear queue after use
+      chrome.storage.local.remove(['queuedProperty']);
+    }
+
+    // Apply SCE1 defaults for any missing fields
+    propertyData = {
+      firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
+      lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
+      phone: propertyData.phone || SCE1_DEFAULTS.phone,
+      email: propertyData.email || SCE1_DEFAULTS.email,
+      ...propertyData,
+    };
+
+    await fillAllSections(propertyData, banner);
+
+    banner.setSuccess('All sections filled successfully!');
+    sendResponse({ success: true });
+
+  } catch (error) {
+    const errorMessage = (error as Error).message;
+
+    if (errorMessage === 'Stopped by user') {
+      banner.setStopped();
+      sendResponse({ success: false, stopped: true });
+    } else {
+      banner.setError('fill-all-btn', errorMessage);
+      sendResponse({ success: false, error: errorMessage });
+    }
+  }
+}
+
+/**
+ * Handle fill current section request
+ */
+async function handleFillCurrentSection(sendResponse: (response: any) => void): Promise<void> {
+  const banner = (window as any).sce2Banner as BannerController;
+
+  if (!banner) {
+    sendResponse({ success: false, error: 'Banner not found' });
+    return;
+  }
+
+  resetStopFlag();
+
+  try {
+    // Get property data from storage
+    const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
+
+    let propertyData = result.propertyData || {};
+
+    // If we have queued property, use its data
+    if (result.queuedProperty) {
+      propertyData = {
+        ...propertyData,
+        ...result.queuedProperty,
+      };
+
+      // Clear queue after use
+      chrome.storage.local.remove(['queuedProperty']);
+    }
+
+    // Apply SCE1 defaults
+    propertyData = {
+      firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
+      lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
+      phone: propertyData.phone || SCE1_DEFAULTS.phone,
+      email: propertyData.email || SCE1_DEFAULTS.email,
+      ...propertyData,
+    };
+
+    await fillCurrentSection(propertyData, banner);
+
+    banner.showSectionSuccess();
+    sendResponse({ success: true });
+
+  } catch (error) {
+    const errorMessage = (error as Error).message;
+    banner.setError('fill-section-btn', errorMessage);
+    sendResponse({ success: false, error: errorMessage });
+  }
+}
+
+// ==========================================
+// BANNER INITIALIZATION
+// ==========================================
+
+/**
+ * Initialize banner on page load
+ */
+function initBanner(): void {
+  const bannerController = new BannerController();
+  (window as any).sce2Banner = bannerController;
+
+  // Check for queued data (auto-show if present)
+  chrome.storage.local.get(['queuedProperty'], (result) => {
+    if (result.queuedProperty) {
+      console.log('[Banner] Queued property found, auto-showing banner');
+      bannerController.show(true);
+    }
+  });
+}
+
+// Initialize banner when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initBanner);
+} else {
+  initBanner();
+}
 
 // Log that content script is loaded
 console.log('SCE2 Content Script loaded');

@@ -102,6 +102,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     await updateUI();
   });
 
+  // Show Form Assistant button
+  document.getElementById('show-banner-btn')!.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true
+    });
+
+    if (tab.url?.includes('sce.dsmcentral.com')) {
+      if (tab.id) {
+        chrome.tabs.sendMessage(tab.id, {
+          action: 'SHOW_BANNER'
+        });
+        window.close();
+      }
+    } else {
+      alert('Please navigate to an SCE form page (sce.dsmcentral.com) first');
+    }
+  });
+
   // Refresh status every 2 seconds
   setInterval(updateUI, 2000);
 });
