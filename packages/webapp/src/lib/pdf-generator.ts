@@ -203,44 +203,44 @@ export async function generateRouteSheet(
           }
         }
 
-        // Content positioning - full width available
+        // Content positioning - account for QR code on right
         const xPos = x + 4;
-        const contentWidth = cellWidth - 8; // Full width with small margins
+        const contentWidth = includeQR ? cellWidth - qrSize - 6 : cellWidth - 8; // Leave room for QR code
         let yPos = y + 7;
 
-        // Property number (prominent at top)
-        doc.setTextColor(100, 100, 100);
-        doc.setFontSize(14);
+        // Property number (smaller, in corner)
+        doc.setTextColor(120, 120, 120);
+        doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         doc.text(`#${index + 1}`, xPos, yPos);
-        yPos += 8;
+        yPos += 6;
 
-        // Address (prominent below number)
+        // Address (smaller to avoid QR code overlap)
         doc.setTextColor(0);
-        doc.setFontSize(12);
+        doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         const addressLines = doc.splitTextToSize(property.addressFull, contentWidth);
         doc.text(addressLines, xPos, yPos);
-        yPos += addressLines.length * 6 + 4;
+        yPos += addressLines.length * 5 + 3;
 
-        // Customer name (below address)
+        // Customer name (LARGER, below address)
         if (includeCustomerData && property.customerName) {
-          doc.setFontSize(11);
+          doc.setFontSize(13);
           doc.setFont('helvetica', 'bold');
           doc.text(property.customerName, xPos, yPos);
-          yPos += 6;
+          yPos += 7;
         }
 
-        // Customer phone (below name)
+        // Customer phone (LARGER, below name)
         if (includeCustomerData && property.customerPhone) {
-          doc.setFontSize(10);
+          doc.setFontSize(12);
           doc.setFont('helvetica', 'normal');
-          doc.setTextColor(80, 80, 80);
+          doc.setTextColor(60, 60, 60);
           doc.text(property.customerPhone, xPos, yPos);
           doc.setTextColor(0);
-          yPos += 8;
+          yPos += 7;
         } else if (!includeCustomerData) {
-          yPos += 6;
+          yPos += 5;
         }
 
         // Age field (compact, on left)
@@ -251,12 +251,12 @@ export async function generateRouteSheet(
           value: ageValue,
           x: xPos,
           y: yPos,
-          width: 20,
-          height: 7,
-          fontSize: 9,
+          width: 22,
+          height: 8,
+          fontSize: 10,
           maxLength: 3,
         });
-        yPos += 11;
+        yPos += 12;
 
         // Notes field - FULL WIDTH of grid cell
         const notesFieldName = generateFieldName(property.id, 'notes');
