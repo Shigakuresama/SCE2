@@ -19,9 +19,7 @@ services:
       - key: PORT
         value: 3333
       - key: DATABASE_URL
-        fromDatabase:
-          name: sce2-db
-          property: connectionString
+        value: file:./dev.sqlite
       - key: ALLOWED_ORIGINS
         value: https://sce2-webapp.onrender.com,https://sce2-mobile.onrender.com
       - key: BASE_URL
@@ -74,10 +72,7 @@ services:
         dest: /index.html
 
 # ===========================================
-# Database - PostgreSQL
+# Database - Using SQLite (file-based)
 # ===========================================
-databases:
-  - name: sce2-db
-    databaseName: sce2
-    user: sce2_user
-    plan: free # 90 days, then $7/month
+# No separate database service needed - SQLite stores data locally
+# Note: Data will be lost on redeploy - for persistence, migrate to PostgreSQL
