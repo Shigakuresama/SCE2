@@ -123,31 +123,25 @@ export async function generateRouteSheet(
 
     const pageProperties = pages[pageIndex];
 
-    // Add header with blue accent
-    doc.setFillColor(59, 130, 246);
-    doc.rect(margin, 10, pageWidth - 2 * margin, 0.5, 'F');
-    doc.rect(margin, 10, 3, 15, 'F');
-
-    doc.setFontSize(18);
+    // Add header
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(255, 255, 255);
-    doc.text('SCE2', margin + 5, 15);
-    doc.setTextColor(0);
+    doc.text('SCE2 Route Sheet', margin, 15);
 
-    doc.setFontSize(14);
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text('Route Sheet', margin + 18, 15);
-
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 100, 100);
     doc.text(
       `Page ${pageIndex + 1} of ${pages.length} | ${new Date().toLocaleDateString()}`,
-      pageWidth - margin - 5,
-      15,
-      { align: 'right' }
+      margin,
+      20
     );
-    doc.setTextColor(0);
+
+    if (usesTestData && pageIndex === 0) {
+      doc.setTextColor(200, 100, 100);
+      doc.setFontSize(8);
+      doc.text('*** CONTAINS TEST DATA ***', pageWidth - margin - 45, 20);
+      doc.setTextColor(0);
+    }
 
     if (usesTestData && pageIndex === 0) {
       doc.setTextColor(200, 100, 100);
@@ -247,7 +241,6 @@ export async function generateRouteSheet(
             y: yPos + 1,
             width: 4,
             height: 4,
-            label: 'Fixed',
           });
 
           yPos += 9;
