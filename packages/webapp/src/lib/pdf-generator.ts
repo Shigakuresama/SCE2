@@ -243,7 +243,7 @@ export async function generateRouteSheet(
           yPos += 5;
         }
 
-        // Age field (compact, on left)
+        // Age field (label NEXT to field, not above)
         const ageFieldName = generateFieldName(property.id, 'age');
         const ageValue = property.customerAge?.toString() || '';
         addTextField(doc, 'AGE:', {
@@ -251,53 +251,25 @@ export async function generateRouteSheet(
           value: ageValue,
           x: xPos,
           y: yPos,
-          width: 22,
+          width: 25,
           height: 8,
           fontSize: 10,
           maxLength: 3,
+          labelPosition: 'left', // Label to the LEFT of the field
         });
         yPos += 12;
 
-        // Notes field - FULL WIDTH of grid cell
+        // Notes field - FULL WIDTH of entire grid cell (under QR code too)
         const notesFieldName = generateFieldName(property.id, 'notes');
-        const remainingHeight = y + cellHeight - yPos - 14; // Leave room for dropdown
+        const remainingHeight = y + cellHeight - yPos - 4; // Use all remaining space
         addTextareaField(doc, 'NOTES:', {
           name: notesFieldName,
           value: property.fieldNotes || '',
-          x: xPos,
+          x: x + 4, // Start from left edge of cell
           y: yPos,
-          width: contentWidth, // FULL WIDTH - not avoiding QR code
+          width: cellWidth - 8, // FULL WIDTH of cell (not avoiding QR)
           height: remainingHeight,
           fontSize: 9,
-        });
-
-        // Visit Status dropdown at bottom RIGHT with colored background
-        const visitStatusFieldName = generateFieldName(property.id, 'visitStatus');
-        const dropdownWidth = 50;
-        const dropdownHeight = 8;
-        const dropdownX = x + cellWidth - dropdownWidth - 4;
-        const dropdownY = y + cellHeight - dropdownHeight - 4;
-
-        // Draw colored background for dropdown area (light gray to stand out)
-        doc.setFillColor(245, 245, 245);
-        doc.roundedRect(dropdownX - 2, dropdownY - 1, dropdownWidth + 4, dropdownHeight + 3, 2, 2, 'F');
-
-        addComboBox(doc, 'STATUS:', {
-          name: visitStatusFieldName,
-          value: 'Not Visited',
-          options: [
-            'Not Visited',
-            'At Home - Interested',
-            'At Home - Not Interested',
-            'No Answer',
-            'Follow Up Required',
-            'Complete',
-          ],
-          x: dropdownX,
-          y: dropdownY,
-          width: dropdownWidth,
-          height: dropdownHeight,
-          fontSize: 7,
         });
       }
     }

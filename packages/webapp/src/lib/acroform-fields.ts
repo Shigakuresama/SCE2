@@ -15,6 +15,7 @@ export interface TextFieldOptions {
   maxLength?: number; // Max character limit
   readOnly?: boolean; // Make field read-only
   alignment?: 'left' | 'center' | 'right'; // Text alignment
+  labelPosition?: 'above' | 'left'; // Label position (default: above)
 }
 
 /**
@@ -50,14 +51,25 @@ export function addTextField(
     fontSize = 10,
     maxLength,
     readOnly = false,
-    alignment = 'left'
+    alignment = 'left',
+    labelPosition = 'above'
   } = options;
 
-  // Draw label above field
-  doc.setFontSize(7);
+  // Draw label
+  doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(50, 50, 50);
-  doc.text(label, x, y - 2);
+
+  if (labelPosition === 'left') {
+    // Draw label to the left of the field
+    const labelWidth = doc.getStringUnitWidth(label) * 8 / doc.internal.scaleFactor;
+    doc.text(label, x, y + height / 2 + 2);
+    // Adjust field position to be after the label
+    x += labelWidth + 2;
+  } else {
+    // Draw label above field
+    doc.text(label, x, y - 2);
+  }
   doc.setTextColor(0);
 
   // Validate AcroForm support
