@@ -552,6 +552,148 @@ async function performSubmit(jobData: SubmitMessageData): Promise<SubmitResult> 
   }
 }
 
+// ==========================================
+// ROUTE PROCESSING HANDLERS
+// ==========================================
+
+/**
+ * Fill route address form on SCE website
+ * Used during route data extraction workflow
+ *
+ * @param address - Address components (streetNumber, streetName, zipCode)
+ * @returns Extracted customer data (name, phone)
+ */
+async function handleFillRouteAddress(address: {
+  streetNumber: string;
+  streetName: string;
+  zipCode: string;
+}): Promise<{ customerName?: string; customerPhone?: string }> {
+  console.log('[Route] Filling address:', address);
+
+  const helper = new SCEHelper();
+
+  try {
+    // 1. Fill Customer Search section with address
+    await helper.fillCustomerSearch({
+      address: `${address.streetNumber} ${address.streetName}`,
+      zipCode: address.zipCode
+    });
+
+    // 2. Click Search button
+    await helper.clickNext();
+
+    // 3. Wait for results (with reasonable timeout)
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // 4. Click Income button to reveal customer info
+    // First, try to find and click Income button/expander
+    const incomeButtons = Array.from(document.querySelectorAll('button, [role="button"], mat-option'));
+    const incomeBtn = incomeButtons.find(btn =>
+      btn.textContent?.toLowerCase().includes('income') ||
+      btn.getAttribute('aria-label')?.toLowerCase().includes('income')
+    );
+
+    if (incomeBtn) {
+      (incomeBtn as HTMLElement).click();
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // 5. Extract customer data from the page
+    const customerName = extractCustomerNameFromSCE();
+    const customerPhone = extractCustomerPhoneFromSCE();
+
+    console.log('[Route] ✓ Extracted:', { customerName, customerPhone });
+
+    return { customerName, customerPhone };
+
+  } catch (error) {
+    console.error('[Route] Failed to fill/extract:', error);
+    return {
+      customerName: undefined,
+      customerPhone: undefined
+    };
+  }
+}
+
+/**
+ * Extract customer name from various SCE page selectors
+ */
+function extractCustomerNameFromSCE(): string | undefined {
+  const selectors = [
+    '.customer-name-label',
+    '[aria-label*="Customer Name" i]',
+    '[data-field-name="customerName"]',
+    '[name*="customerName" i]',
+    'input[placeholder*="name" i]',
+    // SCE specific classes
+    '.customer-name',
+    '.customer-name-label',
+  ];
+
+  for (const selector of selectors) {
+    const el = document.querySelector(selector);
+    if (el) {
+      const input = el as HTMLInputElement;
+      if (input.value) return input.value.trim();
+    }
+  }
+
+  // Try finding by label text
+  const labels = Array.from(document.querySelectorAll('label, mat-label'));
+  for (const label of labels) {
+    if (label.textContent?.toLowerCase().includes('customer') &&
+        label.textContent?.toLowerCase().includes('name')) {
+      const input = label.closest('mat-form-field')?.querySelector('input');
+      if (input && (input as HTMLInputElement).value) {
+        return (input as HTMLInputElement).value.trim();
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract customer phone from various SCE page selectors
+ */
+function extractCustomerPhoneFromSCE(): string | undefined {
+  const selectors = [
+    '.customer-phone-label',
+    '[aria-label*="Phone" i]',
+    '[data-field-name="customerPhone"]',
+    '[name*="phone" i]',
+    'input[placeholder*="phone" i]',
+    'input[type="tel"]',
+    // SCE specific
+    '.customer-phone',
+    '.phone-label',
+  ];
+
+  for (const selector of selectors) {
+    const el = document.querySelector(selector);
+    if (el) {
+      const input = el as HTMLInputElement;
+      if (input.value) return input.value.trim();
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Capture customer data from current SCE page
+ * Called by background script after form filling
+ */
+function handleCaptureRouteData(): {
+  customerName?: string;
+  customerPhone?: string;
+} {
+  return {
+    customerName: extractCustomerNameFromSCE(),
+    customerPhone: extractCustomerPhoneFromSCE()
+  };
+}
+
 async function extractCaseId(): Promise<string> {
   // Wait for status page or case ID element
   try {
@@ -582,6 +724,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .then(sendResponse)
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true; // Keep channel open for async
+
+    // Route processing - fill address form on SCE
+    case 'fillRouteAddress':
+      handleFillRouteAddress(message.address)
+        .then(result => sendResponse({ success: true, data: result }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    // Route processing - capture customer data
+    case 'captureRouteData':
+      const data = handleCaptureRouteData();
+      sendResponse({ success: true, data });
+      return true;
 
     case 'SUBMIT_APPLICATION':
       performSubmit(message.data as SubmitMessageData)

@@ -17,10 +17,10 @@ model Property {
   updatedAt     DateTime  @updatedAt
 
   // Address fields (from Overpass/SCE website)
-  addressFull   String
-  streetNumber  String
-  streetName    String
-  zipCode       String
+  addressFull   String    @unique
+  streetNumber  String?
+  streetName    String?
+  zipCode       String?
   city          String?
   state         String?
   latitude      Float?
@@ -30,6 +30,11 @@ model Property {
   customerName  String?
   customerPhone String?
   customerEmail String?
+
+  // Route extraction metadata (from route processing)
+  dataExtracted Boolean  @default(false)
+  extractedAt   DateTime?
+  screenshotUrl String?
 
   // Field data (from mobile - Phase 2)
   customerAge   Int?
@@ -48,6 +53,7 @@ model Property {
 
   @@index([status])
   @@index([routeId])
+  @@index([dataExtracted])
 }
 
 model Document {

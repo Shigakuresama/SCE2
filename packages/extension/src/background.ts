@@ -6,6 +6,13 @@
 // ==========================================
 import { configManager, getConfig } from './lib/storage.js';
 import { PollingManager } from './lib/polling.js';
+import {
+  processRouteBatch,
+  processRouteAddress,
+  RouteAddress,
+  RouteConfig,
+  BatchProgress
+} from './lib/route-processor.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -82,6 +89,32 @@ const SUBMIT_QUEUE: QueueState = {
   currentJob: null,
   isProcessing: false,
   processedCount: 0,
+};
+
+// ==========================================
+// ROUTE PROCESSING STATE
+// ==========================================
+
+interface RouteBatchState {
+  batchId: string | null;
+  isProcessing: boolean;
+  processedCount: number;
+  totalCount: number;
+  successfulCount: number;
+  failedCount: number;
+  results: any[];
+  progressCallback: ((update: BatchProgress) => void) | null;
+}
+
+const ROUTE_STATE: RouteBatchState = {
+  batchId: null,
+  isProcessing: false,
+  processedCount: 0,
+  totalCount: 0,
+  successfulCount: 0,
+  failedCount: 0,
+  results: [],
+  progressCallback: null,
 };
 
 // ==========================================
@@ -467,6 +500,187 @@ configManager.subscribe((config) => {
   pollingManager.updateInterval(config.pollInterval);
 });
 
+// ==========================================
+// ROUTE PROCESSING FUNCTIONS
+// ==========================================
+
+/**
+ * Process a batch of route addresses
+ * @param addresses - Array of address objects to process
+ * @param config - Optional processing configuration
+ * @returns Promise with batch results
+ */
+async function processRouteAddresses(
+  addresses: RouteAddress[],
+  config?: Partial<RouteConfig>
+): Promise<{ batchId: string; results: any[] }> {
+  if (ROUTE_STATE.isProcessing) {
+    throw new Error('Route processing already in progress');
+  }
+
+  ROUTE_STATE.isProcessing = true;
+  ROUTE_STATE.processedCount = 0;
+  ROUTE_STATE.successfulCount = 0;
+  ROUTE_STATE.failedCount = 0;
+  ROUTE_STATE.results = [];
+
+  // Progress callback for real-time updates
+  const progressCallback = (update: BatchProgress) => {
+    ROUTE_STATE.batchId = update.batchId;
+    ROUTE_STATE.processedCount = update.current;
+    ROUTE_STATE.totalCount = update.total;
+
+    if (update.result) {
+      ROUTE_STATE.results.push(update.result);
+      if (update.result.success) {
+        ROUTE_STATE.successfulCount++;
+      } else {
+        ROUTE_STATE.failedCount++;
+      }
+    }
+
+    // Broadcast progress to popup/options
+    broadcastRouteProgress(update);
+
+    log('[Route] Progress:', update.message);
+  };
+
+  try {
+    const result = await processRouteBatch(addresses, config, progressCallback);
+
+    ROUTE_STATE.batchId = result.batchId;
+    ROUTE_STATE.results = result.results;
+    ROUTE_STATE.successfulCount = result.results.filter(r => r.success).length;
+    ROUTE_STATE.failedCount = result.results.filter(r => !r.success).length;
+
+    log('[Route] Batch complete:', {
+      batchId: result.batchId,
+      total: result.results.length,
+      successful: ROUTE_STATE.successfulCount,
+      failed: ROUTE_STATE.failedCount
+    });
+
+    // Save extracted data to cloud server
+    await saveExtractedDataToCloud(result.results);
+
+    return result;
+  } catch (error) {
+    log('[Route] Batch error:', error);
+    throw error;
+  } finally {
+    ROUTE_STATE.isProcessing = false;
+  }
+}
+
+/**
+ * Process a single route address
+ * @param address - Address object to process
+ * @param config - Optional processing configuration
+ * @returns Promise with processing result
+ */
+async function processSingleRouteAddress(
+  address: RouteAddress,
+  config?: Partial<RouteConfig>
+): Promise<any> {
+  log('[Route] Processing single address:', address.full);
+
+  const result = await processRouteAddress(address, config);
+
+  if (result.success) {
+    log('[Route] ✓ Address processed successfully');
+  } else {
+    log('[Route] ✗ Address processing failed:', result.error);
+  }
+
+  return result;
+}
+
+/**
+ * Get current route processing status
+ */
+function getRouteStatus(): RouteBatchState {
+  return { ...ROUTE_STATE };
+}
+
+/**
+ * Cancel current route processing
+ */
+function cancelRouteProcessing(): void {
+  if (ROUTE_STATE.isProcessing) {
+    log('[Route] Cancelling batch:', ROUTE_STATE.batchId);
+    ROUTE_STATE.isProcessing = false;
+    // Note: Active tabs will continue processing, but no new addresses will be started
+    broadcastRouteProgress({
+      type: 'error',
+      batchId: ROUTE_STATE.batchId || '',
+      current: ROUTE_STATE.processedCount,
+      total: ROUTE_STATE.totalCount,
+      percent: ROUTE_STATE.totalCount > 0
+        ? Math.round((ROUTE_STATE.processedCount / ROUTE_STATE.totalCount) * 100)
+        : 0,
+      message: 'Processing cancelled'
+    });
+  }
+}
+
+/**
+ * Broadcast route progress to all extension contexts
+ */
+function broadcastRouteProgress(update: BatchProgress): void {
+  // Send to popup if open
+  chrome.runtime.sendMessage({
+    action: 'ROUTE_PROGRESS',
+    data: update
+  }).catch(() => {
+    // Popup may not be open, ignore error
+  });
+}
+
+/**
+ * Save extracted customer data to cloud server
+ * @param results - Array of route processing results
+ */
+async function saveExtractedDataToCloud(results: any[]): Promise<void> {
+  const config = await getConfig();
+
+  // Prepare batch update payload
+  const updates = results
+    .filter(r => r.success)
+    .map(r => ({
+      addressFull: r.address,
+      customerName: r.customerName || null,
+      customerPhone: r.customerPhone || null,
+      dataExtracted: true,
+      extractedAt: r.timestamp
+    }));
+
+  if (updates.length === 0) {
+    log('[Route] No successful results to save');
+    return;
+  }
+
+  try {
+    const response = await fetchWithTimeout(
+      `${config.apiBaseUrl}/api/properties/batch-update`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates })
+      },
+      config.timeout
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    log('[Route] ✓ Saved to cloud:', data.data?.successful || 0, 'properties');
+  } catch (error) {
+    log('[Route] Failed to save to cloud:', error);
+  }
+}
+
 // Auto-start if configured
 getConfig().then(config => {
   if (config.autoStart) {
@@ -510,6 +724,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'POLL_NOW':
       poll().then(() => sendResponse({ success: true }));
       return true;
+
+    // ==========================================
+    // ROUTE PROCESSING ACTIONS
+    // ==========================================
+    case 'PROCESS_ROUTE_BATCH':
+      processRouteAddresses(message.addresses, message.config)
+        .then(result => sendResponse({ success: true, data: result }))
+        .catch(error => sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }));
+      return true;
+
+    case 'PROCESS_SINGLE_ROUTE':
+      processSingleRouteAddress(message.address, message.config)
+        .then(result => sendResponse({ success: true, data: result }))
+        .catch(error => sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }));
+      return true;
+
+    case 'GET_ROUTE_STATUS':
+      sendResponse({ success: true, data: getRouteStatus() });
+      break;
+
+    case 'CANCEL_ROUTE_PROCESSING':
+      cancelRouteProcessing();
+      sendResponse({ success: true });
+      break;
 
     default:
       sendResponse({ error: 'Unknown action' });

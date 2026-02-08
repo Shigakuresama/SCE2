@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { propertyRoutes } from './properties.js';
+import { propertyUpdateRoutes } from './property-update.js';
 import { queueRoutes } from './queue.js';
 import { uploadRoutes } from './uploads.js';
 import { routeRoutes } from './routes.js';
@@ -18,6 +19,7 @@ apiRouter.get('/health', (req, res) => {
 
 // Mount routes
 apiRouter.use('/properties', propertyRoutes);
+apiRouter.use('/properties', propertyUpdateRoutes);
 apiRouter.use('/queue', queueRoutes);
 apiRouter.use('/uploads', uploadRoutes);
 apiRouter.use('/routes', routeRoutes);
