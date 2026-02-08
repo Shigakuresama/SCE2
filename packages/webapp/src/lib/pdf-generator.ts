@@ -175,7 +175,7 @@ export async function generateRouteSheet(
         doc.rect(x, y, cellWidth, cellHeight);
 
         // QR Code (small, top-right)
-        const qrSize = 18;
+        const qrSize = 12;
 
         if (includeQR) {
           try {
@@ -186,7 +186,7 @@ export async function generateRouteSheet(
               errorCorrectionLevel: 'L',
             });
 
-            doc.addImage(qrDataUrl, 'PNG', x + cellWidth - qrSize - 3, y + 3, qrSize, qrSize);
+            doc.addImage(qrDataUrl, 'PNG', x + cellWidth - qrSize - 2, y + 2, qrSize, qrSize);
           } catch (error) {
             console.error('Failed to generate QR code:', error);
           }
@@ -264,15 +264,15 @@ export async function generateRouteSheet(
         });
         yPos += 10;
 
-        // Notes field - FULL WIDTH
+        // Notes field - FULL WIDTH (extends under QR code area)
         const notesFieldName = generateFieldName(property.id, 'notes');
-        const notesHeight = y + cellHeight - yPos - 10;
+        const notesHeight = y + cellHeight - yPos - 8;
         addTextareaField(doc, 'NOTES:', {
           name: notesFieldName,
           value: property.fieldNotes || '',
-          x: x + 4,
+          x: x + 2,
           y: yPos,
-          width: cellWidth - 8,
+          width: cellWidth - 4,
           height: notesHeight,
           fontSize: 8,
         });
