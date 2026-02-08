@@ -54,10 +54,11 @@ export const AddressRangeInput: React.FC<AddressRangeInputProps> = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="range-street" className="block text-sm font-medium text-gray-700 mb-1">
             Street Name
           </label>
           <input
+            id="range-street"
             type="text"
             value={streetName}
             onChange={(e) => setStreetName(e.target.value)}
@@ -67,10 +68,11 @@ export const AddressRangeInput: React.FC<AddressRangeInputProps> = ({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="range-zip" className="block text-sm font-medium text-gray-700 mb-1">
             ZIP Code
           </label>
           <input
+            id="range-zip"
             type="text"
             value={zipCode}
             onChange={(e) => setZipCode(e.target.value)}
@@ -81,10 +83,11 @@ export const AddressRangeInput: React.FC<AddressRangeInputProps> = ({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="range-start" className="block text-sm font-medium text-gray-700 mb-1">
             Start Number
           </label>
           <input
+            id="range-start"
             type="number"
             value={startNum}
             onChange={(e) => setStartNum(e.target.value)}
@@ -94,10 +97,11 @@ export const AddressRangeInput: React.FC<AddressRangeInputProps> = ({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="range-end" className="block text-sm font-medium text-gray-700 mb-1">
             End Number
           </label>
           <input
+            id="range-end"
             type="number"
             value={endNum}
             onChange={(e) => setEndNum(e.target.value)}
