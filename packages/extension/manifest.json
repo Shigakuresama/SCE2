@@ -12,7 +12,7 @@
   "host_permissions": [
     "https://sce.dsmcentral.com/*",
     "http://localhost:3333/*",
-    "https://*.digitalocean.com/*"
+    "https://sce2-cloud-server.onrender.com/*"
   ],
   "background": {
     "service_worker": "background.js",
