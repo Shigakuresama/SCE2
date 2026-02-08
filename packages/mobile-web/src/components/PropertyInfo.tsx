@@ -108,7 +108,7 @@ export const PropertyInfo: React.FC<PropertyInfoProps> = ({ property }) => {
             rel="noopener noreferrer"
             className="text-blue-600 text-sm hover:text-blue-800"
           >
-            📍 Open in Maps
+            Open in Maps
           </a>
         </div>
       )}

@@ -60,8 +60,12 @@ export function addTextField(
   doc.text(label, x, y - 2);
   doc.setTextColor(0);
 
+  // Validate AcroForm support
+  if (!doc.AcroForm || !doc.AcroForm.TextField) {
+    throw new Error('AcroForm not supported in this PDF library version or browser');
+  }
+
   // Create AcroForm text field using jsPDF API
-  // @ts-ignore - jsPDF types don't include AcroForm but it exists at runtime
   const textField = new doc.AcroForm.TextField();
   textField.fieldName = name;
   textField.value = value;

@@ -543,38 +543,69 @@ Examples:
 - `property_123_age` - Age field for property ID 123
 - `property_123_notes` - Notes field for property ID 123
 
-#### Data Sync
+#### Data Sync (Current vs Planned)
 
-PDF fields sync to database via "Export PDF Form Data" button:
-1. Fill AGE and NOTES fields in PDF
-2. Click "Export PDF Form Data"
-3. Data saves to cloud database
-4. Mobile web app displays updated data
+**Current Implementation:**
+- PDF fields are fillable in Adobe Acrobat Reader, Foxit Reader, etc.
+- Mobile web (via QR codes) is primary data entry method
+- PDF serves as fillable reference/backup document
+
+**Planned Feature:**
+⚠️ **PDF Import:** Direct PDF file upload and parsing is planned but not yet implemented.
+   - Current: Use mobile web (QR codes) for data entry
+   - Planned: Upload filled PDF → Extract form fields → Sync to database
+
+**Data Flow (Current):**
+1. Generate route PDF with fillable AGE/NOTES fields
+2. Fill fields in PDF viewer OR use mobile web app (scan QR code)
+3. Mobile web data syncs to database automatically
+4. PDF serves as offline reference/backup
 
 #### Implementation Details
 
-**PDF Library:** `pdf-lib` (https://pdf-lib.js.org/)
+**PDF Library:** `jsPDF 2.5.2` (https://github.com/parallax/jsPDF) with AcroForm API
 
 **Field Creation:**
 ```typescript
 // In packages/webapp/src/lib/pdf-generator.ts
-const form = pdfDoc.getForm();
-const ageField = form.createTextField(`property_${property.id}_age`);
-ageField.setText(property.fieldData?.age || '');
+import { addTextField, generateFieldName } from './lib/acroform-fields';
+
+// Create fillable text field
+const ageFieldName = generateFieldName(property.id, 'age');
+addTextField(doc, 'AGE:', {
+  name: ageFieldName,
+  value: property.customerAge?.toString() || '',
+  x: x + 3,
+  y: yPos,
+  width: 25,
+  height: 8,
+  fontSize: 10,
+  maxLength: 3,
+});
 ```
 
-**Data Export:**
+**Data Export (Current - Form State):**
 ```typescript
 // In packages/webapp/src/lib/pdf-export.ts
-export async function exportFormDataFromPDF(file: File): Promise<PropertyFormData[]> {
-  const arrayBuffer = await file.arrayBuffer();
-  const pdfDoc = await PDFDocument.load(arrayBuffer);
-  const form = pdfDoc.getForm();
-  const fields = form.getFields();
-
-  // Extract and parse field data
-  return fields.map(field => parseFieldData(field));
+// Form data flows from UI state (not from PDF file - yet)
+export function extractPDFDataToProperties(
+  formData: Record<string, string | number>,  // Populated by UI form
+  properties: Property[]
+): PDFFieldMapping[] {
+  // Maps form field names to property IDs
+  // Validates field values (age 0-150, notes 500 chars)
+  // Returns array of property updates
 }
+```
+
+**PDF File Upload (Planned):**
+```typescript
+// Future implementation will parse PDF files:
+// 1. Upload PDF file: <input type="file" accept=".pdf" />
+// 2. Parse with pdf-lib or pdfjs-dist
+// 3. Extract AcroForm fields: form.getFields()
+// 4. Populate formData state
+// 5. Call extractPDFDataToProperties(formData, properties)
 ```
 
 **Field Naming Convention:**

@@ -197,25 +197,36 @@ export function validateFormFieldByName(
  *
  * @param formData - Form data object with field names as keys
  * @param properties - Array of properties to map against
- * @returns Array of PDF field mappings with property IDs
+ * @returns Object with valid mappings and any validation errors
  */
 export function extractPDFDataToProperties(
   formData: Record<string, string | number>,
   properties: Property[]
-): PDFFieldMapping[] {
-  const mappings: Map<number, PDFFieldMapping> = new Map();
+): { mappings: PDFFieldMapping[]; errors: ValidationError[] } {
+  const mappingsMap: Map<number, PDFFieldMapping> = new Map();
+  const errors: ValidationError[] = [];
 
   // Process each form field
   for (const [fieldName, value] of Object.entries(formData)) {
     // Parse field name to extract property ID and field type
     const parsed = parseFieldName(fieldName);
-    if (!parsed) continue;
+    if (!parsed) {
+      console.debug(`Skipping field with invalid name format: ${fieldName}`);
+      continue;
+    }
 
     const { propertyId, fieldType } = parsed;
 
     // Validate the field value
     const validation = validateFormField(fieldType, value);
     if (!validation.valid) {
+      // Collect error instead of silently skipping
+      errors.push({
+        propertyId,
+        fieldName,
+        fieldType,
+        message: validation.userMessage || validation.error || 'Invalid value',
+      });
       console.warn(
         `Invalid value for field ${fieldName} (property ${propertyId}): ${validation.error}`
       );
@@ -223,10 +234,10 @@ export function extractPDFDataToProperties(
     }
 
     // Get or create mapping for this property
-    let mapping = mappings.get(propertyId);
+    let mapping = mappingsMap.get(propertyId);
     if (!mapping) {
       mapping = { propertyId };
-      mappings.set(propertyId, mapping);
+      mappingsMap.set(propertyId, mapping);
     }
 
     // Map field value to property field
@@ -239,9 +250,32 @@ export function extractPDFDataToProperties(
   }
 
   // Convert map to array and filter out properties that don't exist
-  return Array.from(mappings.values()).filter(
+  const validMappings = Array.from(mappingsMap.values()).filter(
     (mapping) => properties.some((p) => p.id === mapping.propertyId)
   );
+
+  // Warn about orphaned data (form data for deleted properties)
+  const orphanedIds = Array.from(mappingsMap.keys())
+    .filter(id => !properties.some(p => p.id === id));
+
+  if (orphanedIds.length > 0) {
+    console.warn(
+      `Form data for ${orphanedIds.length} property/properties was discarded ` +
+      `because the properties no longer exist: ${orphanedIds.join(', ')}`
+    );
+  }
+
+  return { mappings: validMappings, errors };
+}
+
+/**
+ * Validation error structure
+ */
+export interface ValidationError {
+  propertyId: number;
+  fieldName: string;
+  fieldType: 'age' | 'notes';
+  message: string;
 }
 
 /**

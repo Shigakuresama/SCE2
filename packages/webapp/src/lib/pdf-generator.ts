@@ -87,6 +87,29 @@ export async function generateRouteSheet(
     startLon,
   } = options;
 
+  // Input validation
+  if (!properties || !Array.isArray(properties)) {
+    throw new Error('Properties must be an array');
+  }
+
+  if (properties.length === 0) {
+    throw new Error('At least one property is required to generate PDF');
+  }
+
+  // Validate each property has required fields
+  for (let i = 0; i < properties.length; i++) {
+    const prop = properties[i];
+    if (!prop || typeof prop !== 'object') {
+      throw new Error(`Property at index ${i} is null or invalid`);
+    }
+    if (!prop.id) {
+      throw new Error(`Property at index ${i} missing required field "id"`);
+    }
+    if (!prop.addressFull) {
+      throw new Error(`Property ${prop.id} missing required field "addressFull"`);
+    }
+  }
+
   // Optimize route order
   const optimizedProperties = optimizeRoute(properties, startLat, startLon);
 
@@ -249,6 +272,26 @@ export async function generateRouteSheet(
             );
           } catch (error) {
             console.error('Failed to generate QR code:', error);
+
+            // Add visual indicator that QR code is missing
+            const qrSize = 35;
+            const qrX = x + cellWidth - qrSize - 3;
+            const qrY = y + 3;
+
+            // Draw error box
+            doc.setDrawColor(200, 0, 0);
+            doc.setFillColor(255, 240, 240);
+            doc.roundedRect(qrX, qrY, qrSize, qrSize, 2, 2, 'FD');
+
+            // Add error text
+            doc.setTextColor(200, 0, 0);
+            doc.setFontSize(5);
+            doc.setFont('helvetica', 'bold');
+            doc.text('[QR ERROR]', qrX + qrSize / 2, qrY + qrSize / 2, { align: 'center' });
+
+            // Reset colors
+            doc.setTextColor(0);
+            doc.setDrawColor(0);
           }
         }
 

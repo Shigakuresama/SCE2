@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { generateRouteSheet } from '../lib/pdf-generator';
 import { extractPDFDataToProperties, validateFormFieldByName } from '../lib/pdf-export';
+import { logError } from '../lib/logger';
 import type { Property } from '../types';
 
 interface PDFGeneratorProps {
@@ -23,6 +24,8 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
   const [formData, setFormData] = useState<Record<string, string>>({});
   // Validation errors state
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Exporting state to prevent double-clicks
+  const [exporting, setExporting] = useState(false);
 
   const handleGenerate = async () => {
     try {
@@ -43,7 +46,11 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
         notes: notes.trim(),
       });
     } catch (error) {
-      console.error('Failed to generate PDF:', error);
+      logError('PDF generation failed', error, {
+        propertiesCount: propertiesToInclude.length,
+        includeQR,
+        includeCustomerData
+      });
       alert(
         `Failed to generate PDF: ${
           error instanceof Error ? error.message : 'Unknown error'
@@ -60,32 +67,80 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
       return;
     }
 
+    // Prevent double-click
+    if (exporting) {
+      return;
+    }
+
     try {
+      setExporting(true);
+
       // Extract form data to property mappings
-      const mappings = extractPDFDataToProperties(formData, properties);
+      const { mappings, errors: validationErrors } = extractPDFDataToProperties(formData, properties);
+
+      // Display validation errors if any
+      if (validationErrors.length > 0) {
+        const errorMap: Record<string, string> = {};
+        validationErrors.forEach(err => {
+          errorMap[`${err.propertyId}_${err.fieldType}`] = err.message;
+        });
+        setErrors(errorMap);
+
+        alert(
+          `Validation failed for ${validationErrors.length} field(s). ` +
+          'Please fix the errors and try again.'
+        );
+        return;
+      }
 
       if (mappings.length === 0) {
         alert('No valid form data to export');
         return;
       }
 
-      // Save each property to database
-      for (const mapping of mappings) {
-        await fetch(`/api/properties/${mapping.propertyId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customerAge: mapping.customerAge,
-            fieldNotes: mapping.fieldNotes
+      // Save each property to database with error tracking
+      const results = await Promise.allSettled(
+        mappings.map(mapping =>
+          fetch(`/api/properties/${mapping.propertyId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customerAge: mapping.customerAge,
+              fieldNotes: mapping.fieldNotes
+            })
           })
-        });
-      }
+        )
+      );
 
-      alert(`Form data exported successfully for ${mappings.length} property/properties!`);
-      onPropertiesUpdated?.();
+      const failures = results.filter(r => r.status === 'rejected');
+      const successes = results.filter(r => r.status === 'fulfilled');
+
+      if (failures.length > 0) {
+        logError('PDF export partial failure', undefined, {
+          total: mappings.length,
+          succeeded: successes.length,
+          failed: failures.length
+        });
+
+        alert(
+          `Warning: Only ${successes.length} of ${mappings.length} properties updated. ` +
+          `${failures.length} failed. Check your internet connection and try again.`
+        );
+      } else {
+        alert(`Form data exported successfully for ${successes.length} property/properties!`);
+        onPropertiesUpdated?.();
+      }
     } catch (error) {
-      console.error('Failed to export form data:', error);
-      alert('Failed to export form data');
+      logError('PDF form data export failed', error, {
+        propertiesCount: mappings.length
+      });
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      alert(
+        `Failed to export form data: ${message}\n\n` +
+        `Please check your internet connection and try again.`
+      );
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -210,9 +265,9 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
         <div className="flex justify-end gap-3">
           <button
             onClick={handleExportPDFData}
-            disabled={Object.keys(formData).length === 0}
+            disabled={Object.keys(formData).length === 0 || exporting}
             className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 ${
-              Object.keys(formData).length === 0
+              Object.keys(formData).length === 0 || exporting
                 ? 'bg-gray-400 cursor-not-allowed'
                 : 'bg-green-600 hover:bg-green-700'
             }`}
@@ -231,7 +286,7 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
               />
             </svg>
-            Export PDF Form Data
+            {exporting ? 'Exporting...' : 'Export PDF Form Data'}
           </button>
 
           <button

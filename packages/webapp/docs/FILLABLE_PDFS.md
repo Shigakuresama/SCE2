@@ -48,12 +48,30 @@ SCE2 route sheet PDFs include fillable fields (like tax forms) that you can type
 
 ## Exporting PDF Data
 
-After filling PDF fields:
+⚠️ **Important:** Direct PDF file import (upload and parse) is **planned but not yet implemented**.
 
-1. Open webapp: https://sce2-webap.onrender.com
-2. Click "Export PDF Form Data" button
+### Current Workflow
+
+**Primary Method - Mobile Web (Recommended):**
+1. At property, scan QR code with mobile app
+2. Fill fields in mobile web app
+3. Data syncs to database automatically
+4. No manual export needed
+
+**Secondary Method - PDF Entry:**
+1. Fill fields in PDF (Adobe Acrobat Reader, Foxit, etc.)
+2. Use PDF as reference/backup document
+3. **Note:** Cannot import data from filled PDF yet (planned feature)
+
+### Planned Feature
+
+Future version will support:
+1. Upload filled PDF file to webapp
+2. System extracts form field data automatically
 3. Data syncs to cloud database
-4. Mobile web app will display updated data
+4. Mobile web displays updated data
+
+**For now, use mobile web (QR codes) as your primary data entry method.**
 
 ## PDF Viewer Compatibility
 
