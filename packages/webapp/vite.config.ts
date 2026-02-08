@@ -29,6 +29,7 @@ export default defineConfig({
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'leaflet-vendor': ['leaflet', 'react-leaflet'],
+          'pdf-vendor': ['jspdf', 'qrcode'],
         },
       },
     },
