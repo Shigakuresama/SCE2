@@ -65,7 +65,7 @@ export const PropertyInfo: React.FC<PropertyInfoProps> = ({ property }) => {
       {property.fieldNotes && (
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-gray-700 mb-1">
-            Previous Notes
+            Notes (from PDF)
           </h3>
           <p className="text-gray-600 text-sm bg-gray-50 p-2 rounded">
             {property.fieldNotes}
@@ -77,7 +77,7 @@ export const PropertyInfo: React.FC<PropertyInfoProps> = ({ property }) => {
       {property.customerAge && (
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-gray-700 mb-1">
-            Customer Age
+            Age (from PDF)
           </h3>
           <p className="text-gray-900">{property.customerAge} years old</p>
         </div>
