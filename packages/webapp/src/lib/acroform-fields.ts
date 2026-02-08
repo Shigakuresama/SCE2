@@ -66,6 +66,7 @@ export function addTextField(
   }
 
   // Create AcroForm text field using jsPDF API
+  // @ts-expect-error - jsPDF types don't include AcroForm but it exists at runtime
   const textField = new doc.AcroForm.TextField();
   textField.fieldName = name;
   textField.value = value;

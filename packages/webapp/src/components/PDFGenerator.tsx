@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { generateRouteSheet } from '../lib/pdf-generator';
-import { extractPDFDataToProperties, validateFormFieldByName } from '../lib/pdf-export';
+import { extractPDFDataToProperties, validateFormFieldByName, type PDFFieldMapping } from '../lib/pdf-export';
 import { logError } from '../lib/logger';
 import type { Property } from '../types';
 
@@ -28,12 +28,12 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
   const [exporting, setExporting] = useState(false);
 
   const handleGenerate = async () => {
+    // Use selected properties if any are selected, otherwise use all properties
+    const propertiesToInclude =
+      selectedProperties.length > 0 ? selectedProperties : properties;
+
     try {
       setLoading(true);
-
-      // Use selected properties if any are selected, otherwise use all properties
-      const propertiesToInclude =
-        selectedProperties.length > 0 ? selectedProperties : properties;
 
       if (propertiesToInclude.length === 0) {
         alert('No properties available to generate PDF');
@@ -72,11 +72,16 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
       return;
     }
 
+    // Declare outside try block for access in catch
+    let mappings: PDFFieldMapping[] = [];
+
     try {
       setExporting(true);
 
       // Extract form data to property mappings
-      const { mappings, errors: validationErrors } = extractPDFDataToProperties(formData, properties);
+      const result = extractPDFDataToProperties(formData, properties);
+      mappings = result.mappings;
+      const validationErrors = result.errors;
 
       // Display validation errors if any
       if (validationErrors.length > 0) {
