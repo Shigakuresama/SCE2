@@ -282,6 +282,7 @@ export const Dashboard: React.FC = () => {
       <PDFGenerator
         properties={properties}
         selectedProperties={selectedProperties}
+        onPropertiesUpdated={fetchProperties}
       />
 
       {/* Queue Status */}

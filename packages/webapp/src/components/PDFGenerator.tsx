@@ -1,20 +1,26 @@
 import React, { useState } from 'react';
 import { generateRouteSheet } from '../lib/pdf-generator';
+import { extractPDFDataToProperties } from '../lib/pdf-export';
 import type { Property } from '../types';
 
 interface PDFGeneratorProps {
   properties: Property[];
   selectedProperties: Property[];
+  onPropertiesUpdated?: () => void;
 }
 
 export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
   properties,
   selectedProperties,
+  onPropertiesUpdated,
 }) => {
   const [loading, setLoading] = useState(false);
   const [includeQR, setIncludeQR] = useState(true);
   const [includeCustomerData, setIncludeCustomerData] = useState(true);
   const [notes, setNotes] = useState('');
+  // Form data state - will be populated by PDF viewer in future implementation
+  // For now, the export functionality provides infrastructure for data sync
+  const [formData] = useState<Record<string, string>>({});
 
   const handleGenerate = async () => {
     try {
@@ -43,6 +49,41 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExportPDFData = async () => {
+    if (Object.keys(formData).length === 0) {
+      alert('No form data to export');
+      return;
+    }
+
+    try {
+      // Extract form data to property mappings
+      const mappings = extractPDFDataToProperties(formData, properties);
+
+      if (mappings.length === 0) {
+        alert('No valid form data to export');
+        return;
+      }
+
+      // Save each property to database
+      for (const mapping of mappings) {
+        await fetch(`/api/properties/${mapping.propertyId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerAge: mapping.customerAge,
+            fieldNotes: mapping.fieldNotes
+          })
+        });
+      }
+
+      alert(`Form data exported successfully for ${mappings.length} property/properties!`);
+      onPropertiesUpdated?.();
+    } catch (error) {
+      console.error('Failed to export form data:', error);
+      alert('Failed to export form data');
     }
   };
 
@@ -122,7 +163,33 @@ export const PDFGenerator: React.FC<PDFGeneratorProps> = ({
         </div>
 
         {/* Generate button */}
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={handleExportPDFData}
+            disabled={Object.keys(formData).length === 0}
+            className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 ${
+              Object.keys(formData).length === 0
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-green-600 hover:bg-green-700'
+            }`}
+          >
+            <svg
+              className="-ml-1 mr-2 h-4 w-4"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+              />
+            </svg>
+            Export PDF Form Data
+          </button>
+
           <button
             onClick={handleGenerate}
             disabled={loading || propertyCount === 0}
