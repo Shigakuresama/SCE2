@@ -499,6 +499,57 @@ npx prisma migrate status
    }, 60000); // Every minute
    ```
 
+### Issue: Fillable PDF Fields Not Working
+
+**Symptoms:**
+- PDF fields are not clickable
+- Cannot type into AGE or NOTES fields
+- Export button does nothing
+
+**Diagnosis:**
+
+Check PDF viewer supports AcroForm fields:
+- Adobe Acrobat Reader: ✅ Supported
+- Preview (macOS): ❌ Not supported
+- Browser viewers: ⚠️ Partial support
+- Tablet PDF apps: ✅ Usually supported
+
+**Fixes:**
+
+1. **Use compatible PDF viewer**
+   ```bash
+   # Recommended viewers:
+   - Adobe Acrobat Reader (free)
+   - Foxit Reader (free)
+   - PDF-XChange Editor (free)
+   ```
+
+2. **Enable form filling in viewer settings**
+   ```
+   Adobe Reader: Edit → Preferences → Forms → Enable form filling
+   ```
+
+3. **Alternative: Use mobile web as primary data entry**
+   - Scan QR code
+   - Fill fields in mobile web app
+   - PDF serves as reference only
+
+4. **Verify PDF field generation**
+   ```bash
+   # Check PDF was generated with form fields
+   # Open PDF in Adobe Reader
+   # Look for "Form" field indicators (highlighted areas)
+   ```
+
+5. **Export PDF form data**
+   ```bash
+   # If fields are filled but not syncing:
+   # 1. Open webapp
+   # 2. Click "Export PDF Form Data"
+   # 3. Select the PDF file
+   # 4. Data should sync to database
+   ```
+
 ---
 
 ## Rollback Procedures

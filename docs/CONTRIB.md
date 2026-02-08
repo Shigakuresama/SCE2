@@ -521,6 +521,69 @@ kill -9 <PID>
 
 ---
 
+## PDF Generation
+
+### Fillable PDF Fields
+
+SCE2 generates route sheet PDFs with fillable AcroForm fields (like IRS W-2 forms):
+
+#### Features
+
+- **AGE Field:** Fillable text input for customer age
+- **NOTES Field:** Fillable textarea for field notes
+- **Pre-filled Data:** Extracted customer data pre-populates fields
+- **Digital Entry:** Type directly into PDF on tablet/desktop
+- **Export to Database:** Sync PDF field data to cloud database
+
+#### Field Names
+
+Fields use naming convention: `property_{propertyId}_{fieldName}`
+
+Examples:
+- `property_123_age` - Age field for property ID 123
+- `property_123_notes` - Notes field for property ID 123
+
+#### Data Sync
+
+PDF fields sync to database via "Export PDF Form Data" button:
+1. Fill AGE and NOTES fields in PDF
+2. Click "Export PDF Form Data"
+3. Data saves to cloud database
+4. Mobile web app displays updated data
+
+#### Implementation Details
+
+**PDF Library:** `pdf-lib` (https://pdf-lib.js.org/)
+
+**Field Creation:**
+```typescript
+// In packages/webapp/src/lib/pdf-generator.ts
+const form = pdfDoc.getForm();
+const ageField = form.createTextField(`property_${property.id}_age`);
+ageField.setText(property.fieldData?.age || '');
+```
+
+**Data Export:**
+```typescript
+// In packages/webapp/src/lib/pdf-export.ts
+export async function exportFormDataFromPDF(file: File): Promise<PropertyFormData[]> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdfDoc = await PDFDocument.load(arrayBuffer);
+  const form = pdfDoc.getForm();
+  const fields = form.getFields();
+
+  // Extract and parse field data
+  return fields.map(field => parseFieldData(field));
+}
+```
+
+**Field Naming Convention:**
+- Pattern: `property_{id}_{fieldType}`
+- Field types: `age`, `notes`
+- Example: `property_123_age`, `property_123_notes`
+
+---
+
 ## Additional Resources
 
 - **Project Overview:** `README.md`
@@ -528,6 +591,7 @@ kill -9 <PID>
 - **Setup Guide:** `docs/SETUP_COMPLETE.md`
 - **Test Report:** `docs/TEST_REPORT.md`
 - **Deployment Guide:** `docs/RENDER_DEPLOYMENT.md`
+- **Fillable PDFs User Guide:** `packages/webapp/docs/FILLABLE_PDFS.md`
 
 ---
 
