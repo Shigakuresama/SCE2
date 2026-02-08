@@ -60,12 +60,13 @@ export function addTextField(
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(50, 50, 50);
 
+  let fieldX = x;
   if (labelPosition === 'left') {
     // Draw label to the left of the field
     const labelWidth = doc.getStringUnitWidth(label) * 8 / doc.internal.scaleFactor;
     doc.text(label, x, y + height / 2 + 2);
     // Adjust field position to be after the label
-    x += labelWidth + 2;
+    fieldX = x + labelWidth + 2;
   } else {
     // Draw label above field
     doc.text(label, x, y - 2);
@@ -82,7 +83,7 @@ export function addTextField(
   const textField = new doc.AcroForm.TextField();
   textField.fieldName = name;
   textField.value = value;
-  textField.x = x;
+  textField.x = fieldX;
   textField.y = y;
   textField.width = width;
   textField.height = height;
