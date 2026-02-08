@@ -147,6 +147,69 @@ export function addTextareaField(
 }
 
 /**
+ * Interface for AcroForm combo box (dropdown) options
+ */
+export interface ComboBoxOptions {
+  name: string;
+  value: string; // Default selected value
+  options: string[]; // Array of dropdown options
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize?: number;
+  readOnly?: boolean;
+}
+
+/**
+ * Add a dropdown combo box to PDF
+ */
+export function addComboBox(
+  doc: jsPDF,
+  label: string,
+  options: ComboBoxOptions
+): void {
+  const {
+    name,
+    value,
+    options: dropdownOptions,
+    x,
+    y,
+    width,
+    height,
+    fontSize = 9,
+    readOnly = false
+  } = options;
+
+  // Draw label above field
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(50, 50, 50);
+  doc.text(label, x, y - 2);
+  doc.setTextColor(0);
+
+  // Create AcroForm combo box using jsPDF API
+  // @ts-ignore - jsPDF types don't include AcroForm but it exists at runtime
+  const comboBox = new doc.AcroForm.ComboBox();
+  comboBox.fieldName = name;
+  comboBox.value = value;
+  comboBox.x = x;
+  comboBox.y = y;
+  comboBox.width = width;
+  comboBox.height = height;
+  comboBox.fontSize = fontSize;
+
+  // Set dropdown options
+  comboBox.setOptions(dropdownOptions);
+
+  if (readOnly) {
+    comboBox.readOnly = true;
+  }
+
+  doc.addField(comboBox);
+}
+
+/**
  * Generate unique field name for property
  * Format: "property_{propertyId}_{fieldName}"
  */
