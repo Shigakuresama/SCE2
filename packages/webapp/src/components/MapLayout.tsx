@@ -4,9 +4,11 @@ import L from 'leaflet';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
-import { Property, AddressInput } from '../types';
+import { Property, AddressInput, PropertyStatus } from '../types';
 import { fetchAddressesInBounds, Bounds } from '../lib/overpass';
 import { isApartment } from '../lib/apartment-detector';
+import { AddressSelectionManager } from './AddressSelectionManager';
+import { RouteProcessor } from './RouteProcessor';
 
 // Fix for default marker icons in react-leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -133,6 +135,8 @@ async function reverseGeocode(lat: number, lng: number): Promise<AddressInput | 
 interface MapLayoutProps {
   onAddressesSelected: (addresses: AddressInput[]) => void;
   existingProperties?: Property[];
+  properties?: Property[];
+  onPropertiesUpdated?: () => void;
 }
 
 type DrawMode = null | 'rectangle' | 'circle';
@@ -353,7 +357,15 @@ function MapController({
 export const MapLayout: React.FC<MapLayoutProps> = ({
   onAddressesSelected,
   existingProperties = [],
+  properties: propList = [],
+  onPropertiesUpdated,
 }) => {
+  // Unified property state: use existing properties from API, or propList, or local state
+  const [localProperties, setLocalProperties] = useState<Property[]>([]);
+
+  // The source of truth for properties shown on map and used in selection
+  const properties = existingProperties.length > 0 ? existingProperties : (propList.length > 0 ? propList : localProperties);
+
   const [mapCenter] = useState<[number, number]>([33.8361, -117.8897]);
   const [loading, setLoading] = useState(false);
   const [hasSelectedArea, setHasSelectedArea] = useState(false);
@@ -363,6 +375,55 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
   const [clickMarkers, setClickMarkers] = useState<L.Marker[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
+
+  // Address selection state
+  const [selectedProperties, setSelectedProperties] = useState<Property[]>([]);
+
+  // Handler for when addresses are selected via map drawing or search
+  // Must be defined before handleFetchAddresses since it depends on this
+  const handleAddressesSelectedInternal = useCallback((addresses: AddressInput[]) => {
+    // Convert AddressInput to local property format (string IDs for local, number for API)
+    const newProps = addresses.map((addr, index) => {
+      const now = new Date();
+      return {
+        id: `local_${now.getTime()}_${index}` as unknown as number, // Cast string to number for local use
+        createdAt: now,
+        updatedAt: now,
+        addressFull: addr.addressFull,
+        streetNumber: addr.streetNumber || null,
+        streetName: addr.streetName || null,
+        zipCode: addr.zipCode || null,
+        city: addr.city || null,
+        state: addr.state || null,
+        latitude: addr.latitude || null,
+        longitude: addr.longitude || null,
+        customerName: null,
+        customerPhone: null,
+        customerEmail: null,
+        customerAge: null,
+        fieldNotes: null,
+        sceCaseId: null,
+        status: PropertyStatus.PENDING_SCRAPE,
+        routeId: null,
+      } as Property; // Cast to Property since local properties have string IDs internally
+    });
+
+    setLocalProperties(prev => [...prev, ...newProps]);
+
+    // Also call the original callback if provided
+    if (onAddressesSelected) {
+      onAddressesSelected(addresses);
+    }
+  }, [onAddressesSelected]);
+
+  // Handler to refresh properties from API (called after route processing)
+  const handlePropertiesUpdated = useCallback(() => {
+    if (onPropertiesUpdated) {
+      onPropertiesUpdated();
+    }
+    // Also clear local properties when API refresh happens
+    setLocalProperties([]);
+  }, [onPropertiesUpdated]);
 
   const handleFetchAddresses = useCallback(
     async (bounds: Bounds) => {
@@ -374,7 +435,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
         setHasSelectedArea(true);
 
         if (addresses.length > 0) {
-          onAddressesSelected(addresses);
+          handleAddressesSelectedInternal(addresses);
           console.log(`[MapLayout] Found ${addresses.length} addresses`);
         } else {
           console.log('[MapLayout] No addresses found in selected area');
@@ -387,7 +448,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
         setLoading(false);
       }
     },
-    [onAddressesSelected]
+    [handleAddressesSelectedInternal]
   );
 
   const handleDrawComplete = useCallback(
@@ -395,7 +456,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
       handleFetchAddresses(bounds);
       setDrawMode(null); // Exit draw mode after completion
     },
-    [handleFetchAddresses]
+    [handleFetchAddresses, handleAddressesSelectedInternal]
   );
 
   // Handle map click for click-to-pin functionality
@@ -426,13 +487,9 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
 
     setClickMarkers((prev) => [...prev, marker]);
 
-    // Queue the address
-    try {
-      await onAddressesSelected([address]);
-      console.log('[MapLayout] Address queued successfully');
-    } catch (error) {
-      console.error('[MapLayout] Failed to queue address:', error);
-    }
+    // Queue the address using the internal handler
+    handleAddressesSelectedInternal([address]);
+    console.log('[MapLayout] Address queued successfully');
   };
 
   const handleEnableRectangle = () => {
@@ -551,7 +608,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
                           longitude: lon,
                         };
 
-                        await onAddressesSelected([addressData]);
+                        handleAddressesSelectedInternal([addressData]);
                         console.log('[MapLayout] Address queued successfully');
 
                         // Show success message
@@ -716,7 +773,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
         <MapClickHandler onClick={handleMapClick} />
 
         {/* Show existing properties as markers */}
-        {existingProperties.map((prop) => {
+        {properties.map((prop) => {
           if (!prop.latitude || !prop.longitude) return null;
 
           const isApt = isApartment(prop);
@@ -767,6 +824,45 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
           </Marker>
         ))}
       </MapContainer>
+
+      {/* Address Selection Manager */}
+      <AddressSelectionManager
+        properties={properties}
+        setProperties={setLocalProperties}
+        selectedProperties={selectedProperties}
+        setSelectedProperties={setSelectedProperties}
+        onEnablePinMode={() => setIsClickToPinMode(true)}
+      />
+
+      {/* Route Processor - Extract customer data from SCE */}
+      {selectedProperties.length > 0 && (
+        <RouteProcessor
+          properties={properties}
+          selectedProperties={selectedProperties}
+          onProcessingComplete={(results) => {
+            console.log('[MapLayout] Route processing complete:', results);
+            handlePropertiesUpdated(); // Refresh properties from API
+          }}
+          onPropertiesUpdated={handlePropertiesUpdated}
+        />
+      )}
+
+      {/* Selected Properties floating action bar */}
+      {selectedProperties.length > 0 && (
+        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 z-[1000]">
+          <div className="font-semibold mb-2">{selectedProperties.length} addresses selected</div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setSelectedProperties([]);
+              }}
+              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

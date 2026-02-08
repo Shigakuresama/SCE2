@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { AddressRangeInput } from './AddressRangeInput';
 import { AddressImport } from './AddressImport';
-import type { Property, PropertyInput } from '../types';
+import type { Property } from '../types';
 import { PropertyStatus } from '../types';
 
 interface AddressSelectionManagerProps {
@@ -11,6 +11,7 @@ interface AddressSelectionManagerProps {
   setProperties: (properties: Property[]) => void;
   selectedProperties: Property[];
   setSelectedProperties: (properties: Property[]) => void;
+  onEnablePinMode?: () => void;
 }
 
 type SelectionMethod = 'draw' | 'range' | 'import' | 'pins' | 'database';
@@ -20,12 +21,13 @@ export const AddressSelectionManager: React.FC<AddressSelectionManagerProps> = (
   setProperties,
   selectedProperties,
   setSelectedProperties,
+  onEnablePinMode,
 }) => {
   const [activeMethod, setActiveMethod] = useState<SelectionMethod | null>(null);
 
   const handleAddressesFromRange = (addresses: string[]) => {
     const now = new Date();
-    const newProps: PropertyInput[] = addresses.map((addr) => {
+    const newProps = addresses.map((addr, index) => {
       // Parse the address
       const parts = addr.split(',').map(p => p.trim());
       const streetPart = parts[0] || '';
@@ -35,12 +37,13 @@ export const AddressSelectionManager: React.FC<AddressSelectionManagerProps> = (
       const zipPart = parts[parts.length - 1] || '';
 
       return {
+        id: `range_${now.getTime()}_${index}` as unknown as number,
         createdAt: now,
         updatedAt: now,
         addressFull: addr,
-        streetNumber: number,
-        streetName: street,
-        zipCode: zipPart,
+        streetNumber: number || null,
+        streetName: street || null,
+        zipCode: zipPart || null,
         city: parts[1] || null,
         state: 'CA',
         latitude: null,
@@ -53,17 +56,17 @@ export const AddressSelectionManager: React.FC<AddressSelectionManagerProps> = (
         fieldNotes: null,
         sceCaseId: null,
         routeId: null,
-      };
+      } as Property;
     });
 
-    setProperties([...properties, ...(newProps as Property[])]);
-    setSelectedProperties(newProps as Property[]);
+    setProperties([...properties, ...newProps]);
+    setSelectedProperties(newProps);
     setActiveMethod(null);
   };
 
   const handleAddressesFromImport = (addresses: string[]) => {
     const now = new Date();
-    const newProps: PropertyInput[] = addresses.map((addr) => {
+    const newProps = addresses.map((addr, index) => {
       // Parse the address
       const parts = addr.split(',').map(p => p.trim());
       const streetPart = parts[0] || '';
@@ -73,12 +76,13 @@ export const AddressSelectionManager: React.FC<AddressSelectionManagerProps> = (
       const zipPart = parts[parts.length - 1] || '';
 
       return {
+        id: `import_${now.getTime()}_${index}` as unknown as number,
         createdAt: now,
         updatedAt: now,
         addressFull: addr,
-        streetNumber: number,
-        streetName: street,
-        zipCode: zipPart,
+        streetNumber: number || null,
+        streetName: street || null,
+        zipCode: zipPart || null,
         city: parts[1] || null,
         state: 'CA',
         latitude: null,
@@ -91,17 +95,22 @@ export const AddressSelectionManager: React.FC<AddressSelectionManagerProps> = (
         fieldNotes: null,
         sceCaseId: null,
         routeId: null,
-      };
+      } as Property;
     });
 
-    setProperties([...properties, ...(newProps as Property[])]);
-    setSelectedProperties(newProps as Property[]);
+    setProperties([...properties, ...newProps]);
+    setSelectedProperties(newProps);
     setActiveMethod(null);
   };
 
   const handlePinsFromDatabase = (dbProperties: Property[]) => {
     setSelectedProperties(dbProperties);
     setActiveMethod(null);
+  };
+
+  const handleEnablePinMode = () => {
+    setActiveMethod('pins');
+    onEnablePinMode?.();
   };
 
   return (
@@ -140,7 +149,7 @@ export const AddressSelectionManager: React.FC<AddressSelectionManagerProps> = (
           </button>
 
           <button
-            onClick={() => setActiveMethod('pins')}
+            onClick={handleEnablePinMode}
             className={`p-4 rounded-lg border-2 text-center transition-colors ${
               activeMethod === 'pins'
                 ? 'border-blue-500 bg-blue-50'

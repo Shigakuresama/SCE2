@@ -34,6 +34,8 @@ SCE2 is a **cloud-hybrid rebate automation platform** that unifies the fragmente
 ✅ **Address Search** - Nominatim API with map pinning
 ✅ **Property Deletion** - Fixed route ordering, added UI controls
 ✅ **Comprehensive Options Page** - 980 lines, 18 tabs matching SCE1
+✅ **Multi-Method Address Selection** - Draw on map, address range, import list, pin mode, database
+✅ **Route Processing System** - Extract customer data from SCE via extension
 
 ## Common Commands
 
@@ -226,6 +228,60 @@ if (data && data.length > 0) {
   L.marker([lat, lon]).addTo(map);
 }
 ```
+
+### 5. Address Selection Methods (Webapp)
+
+The webapp provides 5 different ways to select addresses for route processing:
+
+**AddressSelectionManager Component:**
+Located at `src/components/AddressSelectionManager.tsx`, provides:
+
+1. **Draw on Map** - Use rectangle/circle drawing tools to select area
+2. **Address Range** - Generate sequential addresses (e.g., "100-200 Main St")
+3. **Pin Addresses** - Click individual locations on the map
+4. **Import List** - Paste addresses or upload CSV/TXT file
+5. **From Database** - Select existing properties from database
+
+**AddressRangeInput Component:**
+```typescript
+// Generates addresses from start to end number
+<AddressRangeInput onAddressesExtracted={(addresses) => {
+  // addresses: string[] - e.g., ["100 Main St", "101 Main St", ...]
+}} />
+```
+
+**AddressImport Component:**
+```typescript
+// Imports addresses from pasted text or file
+<AddressImport onAddressesImported={(addresses) => {
+  // addresses: string[] - parsed from input
+}} />
+```
+
+### 6. Route Processing System
+
+The RouteProcessor component extracts customer data from SCE website via the extension:
+
+**RouteProcessor Component:**
+```typescript
+// Extract customer data for selected properties
+<RouteProcessor
+  properties={properties}
+  selectedProperties={selectedProperties}
+  onProcessingComplete={(results) => {
+    // results: Array of { success, address, customerName, customerPhone, timestamp }
+  }}
+  onPropertiesUpdated={() => fetchProperties()}
+/>
+```
+
+**Flow:**
+1. User selects addresses (via any method above)
+2. User clicks "Extract Customer Data" button
+3. Extension opens SCE website in 3 concurrent tabs
+4. For each address: fills form → clicks Search → clicks Income → extracts data
+5. Results saved to database with `dataExtracted: true`
+6. Properties refresh to show extracted customer names/phones
 
 ### 5. Debugging
 
@@ -502,6 +558,16 @@ import multer from 'multer';
   - Rectangle/circle drawing (click-move-click pattern)
   - Address search with Nominatim API
   - Overpass API address fetching
+  - Integrated with AddressSelectionManager and RouteProcessor
+- `src/components/AddressSelectionManager.tsx` - **Multi-method address selection**
+  - 5 selection methods: draw, range, import, pins, database
+  - Manages local property state before API sync
+- `src/components/RouteProcessor.tsx` - **SCE customer data extraction**
+  - Sends batch processing requests to extension
+  - Displays real-time progress bar
+  - Refreshes properties when extraction completes
+- `src/components/AddressRangeInput.tsx` - Sequential address generation
+- `src/components/AddressImport.tsx` - CSV/TXT paste or file upload
 - `src/components/PDFGenerator.tsx` - PDF generation with QR codes
 - `src/components/PropertyCard.tsx` - Property display with delete button
 - `src/components/PropertyList.tsx` - Property list with filtering
@@ -581,6 +647,79 @@ PENDING_SCRAPE → READY_FOR_FIELD → VISITED → READY_FOR_SUBMISSION → COMP
 - Extension polls `GET /api/queue/scrape` for next scrape job
 - Extension polls `GET /api/queue/submit` for next submit job
 - Jobs automatically filtered by status in API routes
+
+## Complete Route Processing Workflow
+
+The route processing system enables efficient customer data extraction from SCE:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 1: Address Selection (Webapp)                              │
+├─────────────────────────────────────────────────────────────────┤
+│ User selects addresses via one of 5 methods:                    │
+│ - Draw shapes on map → Overpass API fetches addresses           │
+│ - Address Range → Generates sequential addresses                 │
+│ - Import List → Parses CSV/TXT                                  │
+│ - Pin Mode → Click locations on map (reverse geocoded)         │
+│ - From Database → Selects existing properties                   │
+│ → Result: selectedProperties array populated                    │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 2: Route Processing (Extension)                            │
+├─────────────────────────────────────────────────────────────────┤
+│ 1. User clicks "Extract Customer Data" button                  │
+│ 2. RouteProcessor sends PROCESS_ROUTE_BATCH message to extension│
+│ 3. Extension opens 3 concurrent SCE tabs                       │
+│ 4. Each tab: fills address → clicks Search → clicks Income      │
+│ 5. Extracts customerName and customerPhone from page           │
+│ 6. Captures screenshot (optional)                              │
+│ 7. Closes tab, processes next batch of 3                        │
+│ 8. Sends progress updates back to webapp                       │
+│ → Result: Database updated with real customer data             │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 3: PDF Generation (Webapp)                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ 1. User clicks "Generate Route PDF"                            │
+│ 2. Properties optimized for route order (nearest neighbor)     │
+│ 3. PDF generated with 3x3 grid pages:                           │
+│    - Property address                                           │
+│    - Real customer name and phone (from extraction)            │
+│    - QR code for mobile access                                  │
+│    - AGE field (for hand-writing)                              │
+│    - NOTES field (for hand-writing)                            │
+│ → Result: PDF saved to computer                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 4: Field Work (Mobile App)                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ 1. User scans QR code with mobile app                           │
+│ 2. Property + customer info loads                              │
+│ 3. User adds field notes and takes photos                      │
+│ 4. Data uploaded to database                                   │
+│ → Result: Property status → VISITED                             │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ STEP 5: Submission (Extension)                                  │
+├─────────────────────────────────────────────────────────────────┤
+│ 1. User opens SCE rebate website on desktop                     │
+│ 2. Extension detects the page                                  │
+│ 3. Auto-fills ALL sections with collected data                 │
+│ 4. User reviews and clicks submit                              │
+│ → Result: Property status → COMPLETE                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Integration Points:**
+
+- **MapLayout ↔ AddressSelectionManager**: Props flow for properties/selectedProperties, setProperties callback for local additions
+- **AddressSelectionManager ↔ AddressRangeInput/Import**: Callback handlers convert string addresses to Property objects with unique IDs
+- **MapLayout ↔ RouteProcessor**: selectedProperties passed for extraction, onPropertiesUpdated callback triggers refresh after completion
+- **Extension ↔ Webapp**: Chrome runtime messages (PROCESS_ROUTE_BATCH, ROUTE_PROGRESS, ROUTE_COMPLETE)
 
 ## Testing
 
@@ -794,7 +933,16 @@ SCE2/
 │   │   └── icons/
 │   ├── webapp/                    # React desktop app
 │   │   ├── src/
-│   │   │   ├── components/        # MapLayout, PDFGenerator, etc.
+│   │   │   ├── components/        # UI Components
+│   │   │   │   ├── MapLayout.tsx              # Leaflet map with drawing
+│   │   │   │   ├── AddressSelectionManager.tsx # Multi-method selection
+│   │   │   │   ├── RouteProcessor.tsx         # SCE data extraction
+│   │   │   │   ├── AddressRangeInput.tsx      # Sequential addresses
+│   │   │   │   ├── AddressImport.tsx          # CSV/TXT import
+│   │   │   │   ├── PDFGenerator.tsx           # PDF with QR codes
+│   │   │   │   ├── PropertyCard.tsx           # Property display
+│   │   │   │   ├── PropertyList.tsx           # Property list
+│   │   │   │   └── QueueStatus.tsx            # Queue monitoring
 │   │   │   ├── pages/             # Dashboard, Properties, etc.
 │   │   │   └── lib/               # API client, Overpass, etc.
 │   │   └── tests/                 # PDF generation test
