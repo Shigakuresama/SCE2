@@ -29,6 +29,7 @@ import {
 import { BannerController } from './lib/banner.js';
 import { fillAllSections, fillCurrentSection, resetStopFlag, requestStop } from './lib/fill-orchestrator.js';
 import { SCE1_DEFAULTS } from './lib/sce1-logic.js';
+import { readFieldValue, waitForElement as waitForElementUtil } from './lib/dom-utils.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -585,8 +586,13 @@ async function handleFillRouteAddress(address: {
     // 2. Click Search button
     await helper.clickNext();
 
-    // 3. Wait for results (with reasonable timeout)
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // 3. Wait for results (smart wait)
+    // Wait for the accordion headers to appear (indicating search results/sections)
+    try {
+      await waitForElementUtil('mat-expansion-panel-header', 10000);
+    } catch (e) {
+      console.warn('[Route] Warning: Timeout waiting for panels, checking if already open');
+    }
 
     // 4. Click Income button to reveal customer info
     // First, try to find and click Income button/expander
@@ -598,7 +604,10 @@ async function handleFillRouteAddress(address: {
 
     if (incomeBtn) {
       (incomeBtn as HTMLElement).click();
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Short wait for panel expansion
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } else {
+      console.warn('[Route] Income button not found, checking if already expanded');
     }
 
     // 5. Extract customer data from the page
@@ -622,6 +631,11 @@ async function handleFillRouteAddress(address: {
  * Extract customer name from various SCE page selectors
  */
 function extractCustomerNameFromSCE(): string | undefined {
+  // 1. Try reliable dom-utils lookup (qaanchor or mat-label)
+  const fromLabel = readFieldValue('Customer Name') || readFieldValue('Name');
+  if (fromLabel) return fromLabel;
+
+  // 2. Fallback to selectors
   const selectors = [
     '.customer-name-label',
     '[aria-label*="Customer Name" i]',
@@ -641,18 +655,6 @@ function extractCustomerNameFromSCE(): string | undefined {
     }
   }
 
-  // Try finding by label text
-  const labels = Array.from(document.querySelectorAll('label, mat-label'));
-  for (const label of labels) {
-    if (label.textContent?.toLowerCase().includes('customer') &&
-        label.textContent?.toLowerCase().includes('name')) {
-      const input = label.closest('mat-form-field')?.querySelector('input');
-      if (input && (input as HTMLInputElement).value) {
-        return (input as HTMLInputElement).value.trim();
-      }
-    }
-  }
-
   return undefined;
 }
 
@@ -660,6 +662,11 @@ function extractCustomerNameFromSCE(): string | undefined {
  * Extract customer phone from various SCE page selectors
  */
 function extractCustomerPhoneFromSCE(): string | undefined {
+  // 1. Try reliable dom-utils lookup
+  const fromLabel = readFieldValue('Phone') || readFieldValue('Phone Number');
+  if (fromLabel) return fromLabel;
+
+  // 2. Fallback to selectors
   const selectors = [
     '.customer-phone-label',
     '[aria-label*="Phone" i]',

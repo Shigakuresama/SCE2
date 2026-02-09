@@ -1,153 +1,119 @@
 /**
  * Section Navigator
- * Handles navigation between form sections on the SCE website
+ * Handles navigation between form sections on the SCE website.
+ *
+ * Key fix: replaced :has-text() Playwright pseudo-selectors (which don't work
+ * in browser document.querySelector) with text-content matching on
+ * .sections-menu-item__title elements.
+ *
+ * Sections are read dynamically from the DOM — no hardcoded list.
  */
 
-// Section names matching the SCE website navigation
-export const SECTION_NAMES = [
-  'Customer Information',
-  'Additional Customer Information',
-  'Enrollment Information',
-  'Household Members',
-  'Project Information',
-  'Trade Ally Information',
-  'Assessment Questionnaire',
-  'Equipment Information',
-  'Basic Enrollment',
-  'Bonus Program',
-  'Terms and Conditions',
-  'Upload Documents',
-  'Comments',
-  'Status',
-] as const;
+import { waitForReady, sleep } from './dom-utils.js';
 
-export type SectionName = typeof SECTION_NAMES[number];
+// ==========================================
+// SECTION NAME TYPE
+// ==========================================
+
+// Known section names (for type-safety when referencing specific sections).
+// The orchestrator reads the actual list from the DOM at runtime.
+export type SectionName = string;
+
+// ==========================================
+// DOM READING (dynamic, not hardcoded)
+// ==========================================
 
 /**
- * Get the currently active section from the UI
+ * Read all currently visible section titles from the sidebar menu.
+ * Returns them in display order.
  */
-export function getActiveSection(): SectionName | null {
-  const activeElement = document.querySelector(
-    '.sections-menu-item.active .sections-menu-item__title, ' +
-    '.section-nav-item.active .section-nav-item__title, ' +
-    'mat-tab-list .mat-tab-labels[aria-selected="true"]'
+export function getAvailableSections(): string[] {
+  const titles = Array.from(
+    document.querySelectorAll('.sections-menu-item__title')
   );
-
-  if (activeElement) {
-    const title = activeElement.textContent?.trim();
-    if (title && SECTION_NAMES.includes(title as SectionName)) {
-      return title as SectionName;
-    }
-  }
-
-  return null;
+  return titles
+    .map(t => t.textContent?.trim() || '')
+    .filter(Boolean);
 }
 
 /**
- * Check if a specific section is visible/active
+ * Get the currently active section name.
+ * Looks for .sections-menu-item.active → .sections-menu-item__title
  */
-export function isSectionVisible(sectionName: SectionName): boolean {
-  // Check if section title is visible in the main content area
-  const sectionHeaders = Array.from(
-    document.querySelectorAll('h2, h3, .section-title, mat-panel-title')
+export function getActiveSection(): string | null {
+  const active = document.querySelector(
+    '.sections-menu-item.active .sections-menu-item__title'
   );
-
-  return sectionHeaders.some(header =>
-    header.textContent?.trim().includes(sectionName)
-  );
+  return active?.textContent?.trim() || null;
 }
 
-/**
- * Click on a section menu item to navigate to that section
- */
-export async function navigateToSection(sectionName: SectionName): Promise<boolean> {
-  // Try multiple selector patterns for section menu items
-  const selectors = [
-    `.sections-menu-item:has-text("${sectionName}")`,
-    `.section-nav-item:has-text("${sectionName}")`,
-    `mat-tab-label:has-text("${sectionName}")`,
-    `[data-section="${sectionName}"]`,
-  ];
+// ==========================================
+// NAVIGATION (text-based, with verification)
+// ==========================================
 
-  for (const selector of selectors) {
-    const element = document.querySelector(selector) as HTMLElement;
-    if (element) {
-      element.click();
-      // Wait for navigation to complete
-      await sleep(500);
-      // Verify we're on the right section
-      return isSectionVisible(sectionName);
+/**
+ * Navigate to a section by clicking its sidebar menu item.
+ * Uses text-content matching (NOT :has-text pseudo-selector).
+ *
+ * @returns true if navigation succeeded and the section became active.
+ */
+export async function navigateToSection(sectionName: string): Promise<boolean> {
+  const titles = Array.from(
+    document.querySelectorAll('.sections-menu-item__title')
+  );
+
+  for (const title of titles) {
+    if (title.textContent?.trim() === sectionName) {
+      const li = title.closest('.sections-menu-item') as HTMLElement;
+      if (!li) continue;
+
+      li.click();
+      await waitForReady(3000);
+
+      // Verify navigation succeeded
+      const newActive = getActiveSection();
+      if (newActive === sectionName) {
+        return true;
+      }
+
+      // Retry click once — sometimes Angular needs a moment
+      await sleep(300);
+      li.click();
+      await waitForReady(3000);
+      return getActiveSection() === sectionName;
     }
   }
 
-  console.warn(`Section menu item not found: ${sectionName}`);
+  console.warn(`[SectionNav] Menu item not found: "${sectionName}"`);
   return false;
 }
 
 /**
- * Navigate to the next section (click Next button)
+ * Check if a specific section is visible in the sidebar menu.
  */
-export async function goToNextSection(): Promise<boolean> {
-  const selectors = [
-    'button[type="submit"]',
-    '.btn-next',
-    'button:has-text("Next")',
-    'button:has-text("Continue")',
-    '[data-action="next"]',
-  ];
-
-  for (const selector of selectors) {
-    const button = document.querySelector(selector) as HTMLButtonElement;
-    if (button && !button.disabled) {
-      button.click();
-      await sleep(800);
-      return true;
-    }
-  }
-
-  return false;
+export function isSectionAvailable(sectionName: string): boolean {
+  return getAvailableSections().includes(sectionName);
 }
 
 /**
- * Navigate to the previous section (click Previous button)
- */
-export async function goToPreviousSection(): Promise<boolean> {
-  const selectors = [
-    '.btn-prev',
-    'button:has-text("Previous")',
-    'button:has-text("Back")',
-    '[data-action="prev"]',
-  ];
-
-  for (const selector of selectors) {
-    const button = document.querySelector(selector) as HTMLButtonElement;
-    if (button && !button.disabled) {
-      button.click();
-      await sleep(800);
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Wait for a section to become visible
+ * Wait for a section to appear in the sidebar menu.
+ * Useful after completing a section that unlocks the next.
  */
 export function waitForSection(
-  sectionName: SectionName,
+  sectionName: string,
   timeout = 10000
-): Promise<SectionName> {
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (isSectionVisible(sectionName)) {
-      resolve(sectionName);
+    if (isSectionAvailable(sectionName)) {
+      resolve();
       return;
     }
 
     const observer = new MutationObserver(() => {
-      if (isSectionVisible(sectionName)) {
+      if (isSectionAvailable(sectionName)) {
         observer.disconnect();
-        resolve(sectionName);
+        clearTimeout(timer);
+        resolve();
       }
     });
 
@@ -156,202 +122,58 @@ export function waitForSection(
       subtree: true,
     });
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       observer.disconnect();
-      reject(new Error(`Section ${sectionName} not visible within ${timeout}ms`));
+      reject(new Error(`Section "${sectionName}" did not appear within ${timeout}ms`));
     }, timeout);
   });
 }
 
-/**
- * Get all visible section names in order
- */
-export function getVisibleSections(): SectionName[] {
-  const sections: SectionName[] = [];
+// ==========================================
+// SECTION NAVIGATOR CLASS (stateful wrapper)
+// ==========================================
 
-  for (const sectionName of SECTION_NAMES) {
-    if (isSectionVisible(sectionName)) {
-      sections.push(sectionName);
-    }
-  }
-
-  return sections;
-}
-
-/**
- * Check if we're on the first section
- */
-export function isFirstSection(): boolean {
-  const activeSection = getActiveSection();
-  return activeSection === SECTION_NAMES[0];
-}
-
-/**
- * Check if we're on the last section
- */
-export function isLastSection(): boolean {
-  const activeSection = getActiveSection();
-  const visibleSections = getVisibleSections();
-  return activeSection === visibleSections[visibleSections.length - 1];
-}
-
-/**
- * Get current section index
- */
-export function getCurrentSectionIndex(): number {
-  const activeSection = getActiveSection();
-  if (!activeSection) return -1;
-
-  const visibleSections = getVisibleSections();
-  return visibleSections.indexOf(activeSection);
-}
-
-// Helper function
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Navigate through all sections sequentially
- */
-export async function navigateThroughAllSections(): Promise<{
-  visited: SectionName[];
-  skipped: SectionName[];
-  errors: string[];
-}> {
-  const result = {
-    visited: [] as SectionName[],
-    skipped: [] as SectionName[],
-    errors: [] as string[],
-  };
-
-  const visibleSections = getVisibleSections();
-
-  for (const section of visibleSections) {
-    try {
-      const success = await navigateToSection(section);
-      if (success) {
-        result.visited.push(section);
-      } else {
-        result.skipped.push(section);
-      }
-    } catch (error) {
-      result.errors.push(
-        `${section}: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
-    }
-  }
-
-  return result;
-}
-
-/**
- * Section Navigator Class
- * Provides stateful navigation through form sections
- */
 export class SectionNavigator {
-  private currentSection: SectionName | null = null;
-  private visitedSections: Set<SectionName> = new Set();
+  private visitedSections: Set<string> = new Set();
 
-  /**
-   * Initialize navigator and detect current section
-   */
   constructor() {
-    this.currentSection = getActiveSection();
-    if (this.currentSection) {
-      this.visitedSections.add(this.currentSection);
-    }
+    const current = getActiveSection();
+    if (current) this.visitedSections.add(current);
   }
 
-  /**
-   * Get current section
-   */
-  getCurrentSection(): SectionName | null {
-    return this.currentSection;
+  getCurrentSection(): string | null {
+    return getActiveSection();
   }
 
-  /**
-   * Get all visited sections
-   */
-  getVisitedSections(): SectionName[] {
+  getVisitedSections(): string[] {
     return Array.from(this.visitedSections);
   }
 
-  /**
-   * Navigate to a specific section
-   */
-  async goTo(sectionName: SectionName): Promise<boolean> {
+  async goTo(sectionName: string): Promise<boolean> {
     const success = await navigateToSection(sectionName);
     if (success) {
-      this.currentSection = sectionName;
       this.visitedSections.add(sectionName);
     }
     return success;
   }
 
-  /**
-   * Move to next section
-   */
-  async next(): Promise<boolean> {
-    if (isLastSection()) {
-      return false;
-    }
-    const success = await goToNextSection();
-    if (success) {
-      const newSection = getActiveSection();
-      if (newSection) {
-        this.currentSection = newSection;
-        this.visitedSections.add(newSection);
-      }
-    }
-    return success;
-  }
-
-  /**
-   * Move to previous section
-   */
-  async previous(): Promise<boolean> {
-    if (isFirstSection()) {
-      return false;
-    }
-    const success = await goToPreviousSection();
-    if (success) {
-      const newSection = getActiveSection();
-      if (newSection) {
-        this.currentSection = newSection;
-      }
-    }
-    return success;
-  }
-
-  /**
-   * Check if section has been visited
-   */
-  hasVisited(sectionName: SectionName): boolean {
+  hasVisited(sectionName: string): boolean {
     return this.visitedSections.has(sectionName);
   }
 
-  /**
-   * Reset visited sections tracking
-   */
   reset(): void {
     this.visitedSections.clear();
-    this.currentSection = getActiveSection();
-    if (this.currentSection) {
-      this.visitedSections.add(this.currentSection);
-    }
+    const current = getActiveSection();
+    if (current) this.visitedSections.add(current);
   }
 
-  /**
-   * Get progress (visited / total visible)
-   */
   getProgress(): { visited: number; total: number; percentage: number } {
-    const totalVisible = getVisibleSections().length;
-    const visitedCount = this.visitedSections.size;
+    const total = getAvailableSections().length;
+    const visited = this.visitedSections.size;
     return {
-      visited: visitedCount,
-      total: totalVisible,
-      percentage: Math.round((visitedCount / totalVisible) * 100),
+      visited,
+      total,
+      percentage: total > 0 ? Math.round((visited / total) * 100) : 0,
     };
   }
 }

@@ -1,5 +1,12 @@
-// SCE Helper class for form interactions
-// Enhanced with Angular Material patterns from SCE v1
+/**
+ * SCE Helper — reliable form-filling for the SCE rebate website.
+ *
+ * Uses dom-utils for:
+ *  - qaanchor / mat-label field lookup (not input[name] which doesn't exist)
+ *  - Framework-safe value setter (native prototype setter + events)
+ *  - waitForReady instead of fixed sleep()
+ *  - Overlay-aware dropdown selection with retry
+ */
 
 import type { AdditionalCustomerInfo } from './sections/additional-customer.js';
 import type { ProjectInfo } from './sections/project.js';
@@ -15,13 +22,18 @@ import type { CommentsInfo } from './sections/comments.js';
 import type { StatusInfo } from './sections/status.js';
 import { SectionNavigator, type SectionName } from './section-navigator.js';
 import {
-  ElementNotFoundError,
-  withErrorHandling,
-  withRetry,
+  fillFieldByLabel,
+  selectDropdownByLabel,
+  clickCheckbox,
+  fillDateField,
+  clickAddButton,
+  findField,
+  waitForReady,
+  waitForElement,
+} from './dom-utils.js';
+import {
   withErrorCollection,
   logOperation,
-  logError,
-  getSuggestedFix,
 } from './error-handler.js';
 
 // ==========================================
@@ -40,25 +52,14 @@ export interface CustomerInfoData {
   email?: string;
 }
 
-export interface SelectOption {
-  selector: string;
-  value: string;
-  byLabel?: boolean;
-}
-
 export interface DocumentData {
   url: string;
   name: string;
   type: string;
 }
 
-// ==========================================
-// UTILITY FUNCTIONS
-// ==========================================
-
-export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+// Re-export sleep for backward compat
+export { sleep } from './dom-utils.js';
 
 // ==========================================
 // SCE HELPER CLASS
@@ -66,24 +67,21 @@ export function sleep(ms: number): Promise<void> {
 
 export class SCEHelper {
   private sectionNavigator: SectionNavigator;
+  private signal?: AbortSignal;
 
-  constructor() {
+  constructor(signal?: AbortSignal) {
     this.sectionNavigator = new SectionNavigator();
+    this.signal = signal;
   }
 
   // ==========================================
-  // NAVIGATION HELPERS
+  // NAVIGATION
   // ==========================================
-  /**
-   * Get the current section navigator instance
-   */
+
   getNavigator(): SectionNavigator {
     return this.sectionNavigator;
   }
 
-  /**
-   * Navigate to a specific section
-   */
   async goToSection(sectionName: SectionName): Promise<boolean> {
     return logOperation(
       `Navigate to ${sectionName}`,
@@ -92,474 +90,308 @@ export class SCEHelper {
     );
   }
 
-  /**
-   * Navigate to the next section
-   */
-  async goToNextSection(): Promise<boolean> {
-    return logOperation(
-      'Navigate to next section',
-      () => this.sectionNavigator.next(),
-      'SCEHelper'
-    );
+  // ==========================================
+  // FIELD FILLING (label-based, framework-safe)
+  // ==========================================
+
+  async fillField(labelOrAnchor: string, value: string, _fieldName?: string): Promise<void> {
+    await fillFieldByLabel(labelOrAnchor, value, this.signal);
+  }
+
+  async fillSelect(labelOrAnchor: string, value: string, _byLabel?: boolean): Promise<void> {
+    await selectDropdownByLabel(labelOrAnchor, value, this.signal);
   }
 
   /**
-   * Navigate to the previous section
+   * Find input by mat-label text (backward compat wrapper around dom-utils.findField)
    */
-  async goToPreviousSection(): Promise<boolean> {
-    return logOperation(
-      'Navigate to previous section',
-      () => this.sectionNavigator.previous(),
-      'SCEHelper'
-    );
-  }
-
-  // ==========================================
-  // FIELD FILLING (Angular Material Pattern)
-  // ==========================================
-  async fillField(selector: string, value: string, fieldName = 'field'): Promise<void> {
-    const result = await withErrorHandling(
-      `Fill ${fieldName}`,
-      async () => {
-        const element = document.querySelector(selector) as HTMLInputElement;
-
-        if (!element) {
-          throw new ElementNotFoundError(selector, fieldName);
-        }
-
-        console.log(`Filling ${fieldName}:`, value);
-
-        // Focus with click (critical for Angular)
-        element.focus();
-        element.click();
-        await sleep(150);
-
-        // Clear existing value
-        element.value = '';
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        await sleep(50);
-
-        // Use native setter for Angular to detect
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLInputElement.prototype,
-          'value'
-        )?.set;
-
-        if (nativeInputValueSetter) {
-          nativeInputValueSetter.call(element, value);
-        } else {
-          element.value = value;
-        }
-
-        // Trigger comprehensive events
-        element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-        element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
-        element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-
-        // Wait for Angular to process
-        await sleep(300);
-
-        // Verify value was set
-        if (element.value !== value) {
-          console.warn(`Field ${fieldName} not set correctly, retrying...`);
-          // Retry with simpler approach
-          await sleep(200);
-          element.focus();
-          element.value = value;
-          element.dispatchEvent(new InputEvent('input', { bubbles: true }));
-          element.dispatchEvent(new Event('change', { bubbles: true }));
-          await sleep(200);
-        }
-
-        element.blur();
-
-        return value;
-      },
-      `SCEHelper.fillField`
-    );
-
-    if (!result.success) {
-      const suggestion = getSuggestedFix(result.error);
-      console.error(`Failed to fill ${fieldName}:`, result.error.message);
-      if (suggestion) {
-        console.info(`Suggested fix: ${suggestion}`);
-      }
-      throw result.error;
-    }
-  }
-
-  // ==========================================
-  // DROPDOWN SELECTION (Angular Material Pattern)
-  // ==========================================
-  async fillSelect(selector: string, value: string, byLabel = false): Promise<void> {
-    console.log(`Selecting dropdown value:`, value);
-
-    // Find dropdown element
-    let trigger: HTMLElement | null = null;
-
-    if (byLabel) {
-      // Find by label text
-      const labels = Array.from(document.querySelectorAll('mat-form-field mat-label'));
-      const label = labels.find(l => l.textContent?.trim() === value || l.textContent?.includes(value));
-      if (label) {
-        const formField = label.closest('mat-form-field');
-        trigger = formField?.querySelector('mat-select') as HTMLElement;
-      }
-    } else {
-      trigger = document.querySelector(selector) as HTMLElement;
-    }
-
-    if (!trigger) {
-      throw new Error(`Select not found: ${selector}`);
-    }
-
-    // Click to open dropdown
-    trigger.click();
-    await sleep(500);
-
-    // Options appear in .cdk-overlay-container (outside form)
-    const options = Array.from(document.querySelectorAll('mat-option'));
-
-    // Case-insensitive search
-    const option = options.find(o => {
-      const text = o.textContent?.trim().toLowerCase() || '';
-      return text === value.toLowerCase();
-    });
-
-    if (!option) {
-      console.error('Available options:', options.map(o => o.textContent?.trim()));
-      throw new Error(`Option not found: ${value}`);
-    }
-
-    (option as HTMLElement).click();
-
-    // Wait for Angular stability
-    await sleep(300);
-  }
-
-  // ==========================================
-  // UTILITY: Find Input by mat-label
-  // ==========================================
   findInputByMatLabel(labelText: string): HTMLInputElement | null {
-    const labels = Array.from(document.querySelectorAll('mat-form-field mat-label'));
-
-    // Exact match first
-    let label = labels.find(l => l.textContent?.trim() === labelText);
-
-    // Fallback to partial match
-    if (!label) {
-      label = labels.find(l => l.textContent?.includes(labelText));
-    }
-
-    if (!label) {
-      return null;
-    }
-
-    const formField = label.closest('mat-form-field');
-
-    // Try to find input
-    let input = formField?.querySelector('input.mat-input-element, input.mat-input');
-
-    // Fallback to any input
-    if (!input) {
-      input = formField?.querySelector('input');
-    }
-
-    return input as HTMLInputElement | null;
+    return findField(labelText) as HTMLInputElement | null;
   }
 
-  // ==========================================
-  // UTILITY: Wait for Element
-  // ==========================================
+  /**
+   * Wait for element (backward compat wrapper)
+   */
   waitForElement(
     selector: string,
     timeout = 10000,
     parent: Element | Document = document
   ): Promise<Element> {
-    return new Promise((resolve, reject) => {
-      const element = parent.querySelector(selector);
-
-      if (element) {
-        resolve(element);
-        return;
-      }
-
-      const observer = new MutationObserver(() => {
-        const element = parent.querySelector(selector);
-        if (element) {
-          observer.disconnect();
-          resolve(element);
-        }
-      });
-
-      observer.observe(parent, {
-        childList: true,
-        subtree: true,
-      });
-
-      setTimeout(() => {
-        observer.disconnect();
-        reject(new Error(`Element ${selector} not found within ${timeout}ms`));
-      }, timeout);
-    });
+    return waitForElement(selector, timeout, parent);
   }
 
   // ==========================================
   // CUSTOMER SEARCH
   // ==========================================
+
   async fillCustomerSearch(data: CustomerSearchData): Promise<void> {
-    await this.fillField('input[name="streetNum"]', data.address.split(' ')[0], 'Street Number');
-    await this.fillField('input[name="streetName"]', data.address.split(' ').slice(1).join(' '), 'Street Name');
-    await this.fillField('input[name="zip"]', data.zipCode, 'ZIP Code');
+    const parts = data.address.split(' ');
+    const streetNum = parts[0];
+    const streetName = parts.slice(1).join(' ');
+
+    // The customer search form uses qaanchor or specific labels
+    await fillFieldByLabel('Street Number', streetNum, this.signal);
+    await fillFieldByLabel('Street Name', streetName, this.signal);
+    await fillFieldByLabel('Zip Code', data.zipCode, this.signal);
   }
 
   // ==========================================
   // CUSTOMER INFO
   // ==========================================
+
   async fillCustomerInfo(data: CustomerInfoData): Promise<void> {
-    await this.fillField('input[name="firstName"]', data.firstName, 'First Name');
-    await this.fillField('input[name="lastName"]', data.lastName, 'Last Name');
-    await this.fillField('input[name="phone"]', data.phone, 'Phone');
-
+    await fillFieldByLabel('First Name', data.firstName, this.signal);
+    await fillFieldByLabel('Last Name', data.lastName, this.signal);
+    await fillFieldByLabel('Phone', data.phone, this.signal);
     if (data.email) {
-      await this.fillField('input[name="email"]', data.email, 'Email');
+      await fillFieldByLabel('Email', data.email, this.signal);
     }
   }
 
   // ==========================================
-  // NAVIGATION
+  // CLICK NEXT / NAVIGATION BUTTONS
   // ==========================================
+
   async clickNext(): Promise<void> {
-    const nextButton = document.querySelector('button[type="submit"], .btn-next');
+    const selectors = [
+      'button[type="submit"]',
+      '.btn-next',
+      'button.mat-raised-button[color="primary"]',
+    ];
 
-    if (nextButton) {
-      (nextButton as HTMLElement).click();
-      await sleep(1000);
-    } else {
-      throw new Error('Next button not found');
+    for (const sel of selectors) {
+      const btn = document.querySelector(sel) as HTMLButtonElement;
+      if (btn && !btn.disabled) {
+        btn.click();
+        await waitForReady(3000);
+        return;
+      }
     }
+
+    throw new Error('Next/Submit button not found');
   }
 
   // ==========================================
-  // DOCUMENT UPLOADS (Enhanced)
+  // DOCUMENT UPLOADS
   // ==========================================
+
   async uploadDocuments(documents: DocumentData[]): Promise<void> {
-    console.log(`Uploading ${documents.length} documents`);
-
     for (const doc of documents) {
-      try {
-        // Fetch file as blob
-        const response = await fetch(doc.url);
+      const response = await fetch(doc.url);
+      if (!response.ok) throw new Error(`Failed to fetch ${doc.url}: ${response.status}`);
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch ${doc.url}: ${response.status}`);
-        }
+      const blob = await response.blob();
+      const file = new File([blob], doc.name, { type: doc.type });
 
-        const blob = await response.blob();
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      if (!input) throw new Error('File input not found');
 
-        // Convert to File
-        const file = new File([blob], doc.name, { type: doc.type });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
 
-        // Find file input (try multiple selectors)
-        let input = document.querySelector('input[type="file"]') as HTMLInputElement;
-
-        if (!input) {
-          throw new Error('File input not found');
-        }
-
-        // Create DataTransfer
-        const dataTransfer = new DataTransfer();
-        dataTransfer.items.add(file);
-        input.files = dataTransfer.files;
-
-        // Trigger change event
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-
-        console.log(`Uploaded: ${doc.name}`);
-
-        await sleep(500);
-      } catch (error) {
-        console.error(`Failed to upload ${doc.name}:`, error);
-        throw error;
-      }
+      await waitForReady(2000);
     }
   }
 
   // ==========================================
   // ADDITIONAL CUSTOMER INFO
   // ==========================================
+
   async fillAdditionalCustomerInfo(data: Partial<AdditionalCustomerInfo>): Promise<boolean> {
-    const helper = new SCEHelper();
+    const ops: Array<{ name: string; fn: () => Promise<boolean> }> = [];
 
-    const results = await Promise.allSettled([
-      // Dropdown fields
-      data.title ? helper.fillSelect('', data.title, true) : Promise.resolve(),
-      data.preferredContactTime ? helper.fillSelect('', data.preferredContactTime, true) : Promise.resolve(),
-      data.language ? helper.fillSelect('', data.language, true) : Promise.resolve(),
-      data.ethnicity ? helper.fillSelect('', data.ethnicity, true) : Promise.resolve(),
-      data.howDidYouHear ? helper.fillSelect('', data.howDidYouHear, true) : Promise.resolve(),
-      data.masterMetered ? helper.fillSelect('', data.masterMetered, true) : Promise.resolve(),
-      data.buildingType ? helper.fillSelect('', data.buildingType, true) : Promise.resolve(),
-      data.homeownerStatus ? helper.fillSelect('', data.homeownerStatus, true) : Promise.resolve(),
-      data.gasProvider ? helper.fillSelect('', data.gasProvider, true) : Promise.resolve(),
-      data.waterUtility ? helper.fillSelect('', data.waterUtility, true) : Promise.resolve(),
-      data.permanentlyDisabled ? helper.fillSelect('', data.permanentlyDisabled, true) : Promise.resolve(),
-      data.veteran ? helper.fillSelect('', data.veteran, true) : Promise.resolve(),
-      data.nativeAmerican ? helper.fillSelect('', data.nativeAmerican, true) : Promise.resolve(),
-      // Text input fields
-      data.householdUnits ? helper.fillField('', data.householdUnits, 'Number of Units') : Promise.resolve(),
-      data.spaceOrUnit ? helper.fillField('', data.spaceOrUnit, 'Space/Unit') : Promise.resolve(),
-      data.gasAccountNumber ? helper.fillField('', data.gasAccountNumber, 'Gas Account Number') : Promise.resolve(),
-      data.incomeVerifiedDate ? helper.fillField('', data.incomeVerifiedDate, 'Income Verified Date') : Promise.resolve(),
-      data.primaryApplicantAge ? helper.fillField('', data.primaryApplicantAge, 'Primary Applicant Age') : Promise.resolve(),
-    ]);
+    // Dropdowns
+    const dropdowns: Array<[keyof AdditionalCustomerInfo, string]> = [
+      ['title', 'Title'],
+      ['preferredContactTime', 'Preferred Contact Time'],
+      ['language', 'Language'],
+      ['ethnicity', 'Ethnicity'],
+      ['howDidYouHear', 'How Did You Hear'],
+      ['masterMetered', 'Master Metered'],
+      ['buildingType', 'Building Type'],
+      ['homeownerStatus', 'Homeowner Status'],
+      ['gasProvider', 'Gas Provider'],
+      ['waterUtility', 'Water Utility'],
+      ['permanentlyDisabled', 'Permanently Disabled'],
+      ['veteran', 'Veteran'],
+      ['nativeAmerican', 'Native American'],
+    ];
 
-    return results.every(r => r.status === 'fulfilled');
-  }
-
-  // ==========================================
-  // PROJECT INFO
-  // ==========================================
-  async fillProjectInfo(data: Partial<ProjectInfo>): Promise<boolean> {
-    const results = await Promise.allSettled([
-      data.squareFootage ? this.fillField('', data.squareFootage, 'Square Footage') : Promise.resolve(),
-      data.yearBuilt ? this.fillField('', data.yearBuilt, 'Year Built') : Promise.resolve(),
-      data.propertyType ? this.fillSelect('', data.propertyType, true) : Promise.resolve(),
-    ]);
-
-    return results.every(r => r.status === 'fulfilled');
-  }
-
-  // ==========================================
-  // TRADE ALLY INFO
-  // ==========================================
-  async fillTradeAllyInfo(data: Partial<TradeAllyInfo>): Promise<boolean> {
-    const results = await Promise.allSettled([
-      data.firstName ? this.fillField('', data.firstName, 'First Name') : Promise.resolve(),
-      data.lastName ? this.fillField('', data.lastName, 'Last Name') : Promise.resolve(),
-      data.title ? this.fillField('', data.title, 'Title') : Promise.resolve(),
-      data.phone ? this.fillField('', data.phone, 'Phone') : Promise.resolve(),
-      data.email ? this.fillField('', data.email, 'Email') : Promise.resolve(),
-    ]);
-
-    return results.every(r => r.status === 'fulfilled');
-  }
-
-  // ==========================================
-  // ASSESSMENT INFO
-  // ==========================================
-  async fillAssessmentInfo(data: Partial<AssessmentInfo>): Promise<boolean> {
-    const results = await Promise.allSettled([
-      data.hasAttic ? this.fillSelect('', data.hasAttic, true) : Promise.resolve(),
-      data.hasBasement ? this.fillSelect('', data.hasBasement, true) : Promise.resolve(),
-      data.hasCrawlspace ? this.fillSelect('', data.hasCrawlspace, true) : Promise.resolve(),
-      data.heatingType ? this.fillSelect('', data.heatingType, true) : Promise.resolve(),
-      data.coolingType ? this.fillSelect('', data.coolingType, true) : Promise.resolve(),
-      data.waterHeaterType ? this.fillSelect('', data.waterHeaterType, true) : Promise.resolve(),
-      data.windowType ? this.fillSelect('', data.windowType, true) : Promise.resolve(),
-      data.insulationLevel ? this.fillSelect('', data.insulationLevel, true) : Promise.resolve(),
-      data.hasSolar ? this.fillSelect('', data.hasSolar, true) : Promise.resolve(),
-      data.hasPool ? this.fillSelect('', data.hasPool, true) : Promise.resolve(),
-      data.notes ? this.fillField('', data.notes, 'Notes') : Promise.resolve(),
-    ]);
-
-    return results.every(r => r.status === 'fulfilled');
-  }
-
-  // ==========================================
-  // HOUSEHOLD INFO
-  // ==========================================
-  async fillHouseholdInfo(data: Partial<HouseholdInfo>): Promise<boolean> {
-    const results = await Promise.allSettled([
-      data.householdSize ? this.fillField('', data.householdSize, 'Household Size') : Promise.resolve(),
-      data.incomeLevel ? this.fillSelect('', data.incomeLevel, true) : Promise.resolve(),
-    ]);
-
-    return results.every(r => r.status === 'fulfilled');
-  }
-
-  // ==========================================
-  // ENROLLMENT INFO
-  // ==========================================
-  async fillEnrollmentInfo(data: Partial<EnrollmentInfo>): Promise<boolean> {
-    const results = await Promise.allSettled([
-      data.enrollmentDate ? this.fillField('', data.enrollmentDate, 'Enrollment Date') : Promise.resolve(),
-      data.programSource ? this.fillSelect('', data.programSource, true) : Promise.resolve(),
-    ]);
-
-    return results.every(r => r.status === 'fulfilled');
-  }
-
-  // ==========================================
-  // EQUIPMENT INFO
-  // ==========================================
-  async fillEquipmentInfo(data: Partial<EquipmentInfo>): Promise<boolean> {
-    const results = await Promise.allSettled([
-      data.primaryHeating ? this.fillSelect('', data.primaryHeating, true) : Promise.resolve(),
-      data.primaryCooling ? this.fillSelect('', data.primaryCooling, true) : Promise.resolve(),
-      data.waterHeater ? this.fillSelect('', data.waterHeater, true) : Promise.resolve(),
-    ]);
-
-    return results.every(r => r.status === 'fulfilled');
-  }
-
-  // ==========================================
-  // BASIC ENROLLMENT INFO
-  // ==========================================
-  async fillBasicEnrollmentInfo(data: Partial<BasicEnrollmentInfo>): Promise<boolean> {
-    const results = await Promise.allSettled([
-      data.utilityAccount ? this.fillField('', data.utilityAccount, 'Utility Account') : Promise.resolve(),
-      data.rateSchedule ? this.fillSelect('', data.rateSchedule, true) : Promise.resolve(),
-    ]);
-
-    return results.every(r => r.status === 'fulfilled');
-  }
-
-  // ==========================================
-  // BONUS INFO
-  // ==========================================
-  async fillBonusInfo(data: Partial<BonusInfo>): Promise<boolean> {
-    const results = await Promise.allSettled([
-      data.bonusProgram ? this.fillSelect('', data.bonusProgram, true) : Promise.resolve(),
-      data.bonusAmount ? this.fillField('', data.bonusAmount, 'Bonus Amount') : Promise.resolve(),
-    ]);
-
-    return results.every(r => r.status === 'fulfilled');
-  }
-
-  // ==========================================
-  // TERMS INFO
-  // ==========================================
-  async fillTermsInfo(data: Partial<TermsInfo>): Promise<boolean> {
-    // Terms acceptance is typically a checkbox
-    if (data.termsAccepted) {
-      const termsCheckbox = document.querySelector('input[type="checkbox"][id*="term"], input[type="checkbox"][id*="agree"]') as HTMLInputElement;
-      if (termsCheckbox && !termsCheckbox.checked) {
-        termsCheckbox.click();
+    for (const [key, label] of dropdowns) {
+      const val = data[key];
+      if (val) {
+        ops.push({
+          name: label,
+          fn: async () => { await selectDropdownByLabel(label, val, this.signal); return true; },
+        });
       }
     }
 
-    if (data.consentDate) {
-      await this.fillField('', data.consentDate, 'Consent Date');
+    // Text inputs
+    const textFields: Array<[keyof AdditionalCustomerInfo, string]> = [
+      ['householdUnits', 'Household Units'],
+      ['spaceOrUnit', 'Space/Unit'],
+      ['gasAccountNumber', 'Gas Account Number'],
+      ['incomeVerifiedDate', 'Income Verified Date'],
+      ['primaryApplicantAge', 'Primary Applicant Age'],
+    ];
+
+    for (const [key, label] of textFields) {
+      const val = data[key];
+      if (val) {
+        ops.push({
+          name: label,
+          fn: async () => { await fillFieldByLabel(label, val, this.signal); return true; },
+        });
+      }
+    }
+
+    // Fill sequentially (dropdowns must close before next opens)
+    for (const op of ops) {
+      try {
+        await op.fn();
+      } catch (e) {
+        console.warn(`[AdditionalCustomerInfo] Failed: ${op.name}:`, (e as Error).message);
+      }
     }
 
     return true;
   }
 
   // ==========================================
+  // PROJECT INFO
+  // ==========================================
+
+  async fillProjectInfo(data: Partial<ProjectInfo>): Promise<boolean> {
+    if (data.squareFootage) await fillFieldByLabel('Square Footage', data.squareFootage, this.signal).catch(e => console.warn('[ProjectInfo]', e));
+    if (data.yearBuilt) await fillFieldByLabel('Year Built', data.yearBuilt, this.signal).catch(e => console.warn('[ProjectInfo]', e));
+    if (data.propertyType) await selectDropdownByLabel('Property Type', data.propertyType, this.signal).catch(e => console.warn('[ProjectInfo]', e));
+    return true;
+  }
+
+  // ==========================================
+  // TRADE ALLY INFO
+  // ==========================================
+
+  async fillTradeAllyInfo(data: Partial<TradeAllyInfo>): Promise<boolean> {
+    if (data.firstName) await fillFieldByLabel('First Name', data.firstName, this.signal).catch(e => console.warn('[TradeAlly]', e));
+    if (data.lastName) await fillFieldByLabel('Last Name', data.lastName, this.signal).catch(e => console.warn('[TradeAlly]', e));
+    if (data.title) await fillFieldByLabel('Title', data.title, this.signal).catch(e => console.warn('[TradeAlly]', e));
+    if (data.phone) await fillFieldByLabel('Phone', data.phone, this.signal).catch(e => console.warn('[TradeAlly]', e));
+    if (data.email) await fillFieldByLabel('Email', data.email, this.signal).catch(e => console.warn('[TradeAlly]', e));
+    return true;
+  }
+
+  // ==========================================
+  // ASSESSMENT INFO
+  // ==========================================
+
+  async fillAssessmentInfo(data: Partial<AssessmentInfo>): Promise<boolean> {
+    const dropdowns: Array<[keyof AssessmentInfo, string]> = [
+      ['hasAttic', 'Attic Access'],
+      ['hasBasement', 'Basement'],
+      ['hasCrawlspace', 'Crawlspace'],
+      ['heatingType', 'Heating Type'],
+      ['coolingType', 'Cooling Type'],
+      ['waterHeaterType', 'Water Heater Type'],
+      ['windowType', 'Window Type'],
+      ['insulationLevel', 'Insulation Level'],
+      ['hasSolar', 'Solar Panels'],
+      ['hasPool', 'Swimming Pool'],
+    ];
+
+    for (const [key, label] of dropdowns) {
+      const val = data[key];
+      if (val) {
+        await selectDropdownByLabel(label, val, this.signal).catch(e => console.warn('[Assessment]', e));
+      }
+    }
+
+    if (data.notes) await fillFieldByLabel('Notes', data.notes, this.signal).catch(e => console.warn('[Assessment]', e));
+    return true;
+  }
+
+  // ==========================================
+  // HOUSEHOLD INFO
+  // ==========================================
+
+  async fillHouseholdInfo(data: Partial<HouseholdInfo>): Promise<boolean> {
+    // Household Members section may require clicking an Add button first
+    try {
+      await clickAddButton(this.signal);
+    } catch {
+      // Add button might not exist or already clicked
+    }
+
+    if (data.householdSize) await fillFieldByLabel('Household Size', data.householdSize, this.signal).catch(e => console.warn('[Household]', e));
+    if (data.incomeLevel) await selectDropdownByLabel('Income Level', data.incomeLevel, this.signal).catch(e => console.warn('[Household]', e));
+    return true;
+  }
+
+  // ==========================================
+  // ENROLLMENT INFO
+  // ==========================================
+
+  async fillEnrollmentInfo(data: Partial<EnrollmentInfo>): Promise<boolean> {
+    if (data.enrollmentDate) await fillDateField('Enrollment Date', data.enrollmentDate, this.signal).catch(e => console.warn('[Enrollment]', e));
+    if (data.programSource) await selectDropdownByLabel('Program Source', data.programSource, this.signal).catch(e => console.warn('[Enrollment]', e));
+    return true;
+  }
+
+  // ==========================================
+  // EQUIPMENT INFO
+  // ==========================================
+
+  async fillEquipmentInfo(data: Partial<EquipmentInfo>): Promise<boolean> {
+    if (data.primaryHeating) await selectDropdownByLabel('Primary Heating', data.primaryHeating, this.signal).catch(e => console.warn('[Equipment]', e));
+    if (data.primaryCooling) await selectDropdownByLabel('Primary Cooling', data.primaryCooling, this.signal).catch(e => console.warn('[Equipment]', e));
+    if (data.waterHeater) await selectDropdownByLabel('Water Heater', data.waterHeater, this.signal).catch(e => console.warn('[Equipment]', e));
+    return true;
+  }
+
+  // ==========================================
+  // BASIC ENROLLMENT INFO
+  // ==========================================
+
+  async fillBasicEnrollmentInfo(data: Partial<BasicEnrollmentInfo>): Promise<boolean> {
+    if (data.utilityAccount) await fillFieldByLabel('Utility Account', data.utilityAccount, this.signal).catch(e => console.warn('[BasicEnrollment]', e));
+    if (data.rateSchedule) await selectDropdownByLabel('Rate Schedule', data.rateSchedule, this.signal).catch(e => console.warn('[BasicEnrollment]', e));
+    return true;
+  }
+
+  // ==========================================
+  // BONUS INFO
+  // ==========================================
+
+  async fillBonusInfo(data: Partial<BonusInfo>): Promise<boolean> {
+    if (data.bonusProgram) await selectDropdownByLabel('Bonus Program', data.bonusProgram, this.signal).catch(e => console.warn('[Bonus]', e));
+    if (data.bonusAmount) await fillFieldByLabel('Bonus Amount', data.bonusAmount, this.signal).catch(e => console.warn('[Bonus]', e));
+    return true;
+  }
+
+  // ==========================================
+  // TERMS INFO
+  // ==========================================
+
+  async fillTermsInfo(data: Partial<TermsInfo>): Promise<boolean> {
+    if (data.termsAccepted) {
+      await clickCheckbox('terms', true, this.signal).catch(e => console.warn('[Terms]', e));
+    }
+    if (data.consentDate) {
+      await fillDateField('Consent Date', data.consentDate, this.signal).catch(e => console.warn('[Terms]', e));
+    }
+    return true;
+  }
+
+  // ==========================================
   // COMMENTS INFO
   // ==========================================
+
   async fillCommentsInfo(data: Partial<CommentsInfo>): Promise<boolean> {
     if (data.comments) {
-      const textarea = document.querySelector('textarea[name*="comment"], textarea[id*="comment"]') as HTMLTextAreaElement;
-      if (textarea) {
-        textarea.value = data.comments;
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        textarea.dispatchEvent(new Event('change', { bubbles: true }));
-      } else {
-        await this.fillField('', data.comments, 'Comments');
-      }
+      await fillFieldByLabel('Comments', data.comments, this.signal).catch(e => console.warn('[Comments]', e));
     }
     return true;
   }
@@ -567,22 +399,17 @@ export class SCEHelper {
   // ==========================================
   // STATUS INFO
   // ==========================================
-  async fillStatusInfo(data: Partial<StatusInfo>): Promise<boolean> {
-    const results = await Promise.allSettled([
-      data.applicationStatus ? this.fillSelect('', data.applicationStatus, true) : Promise.resolve(),
-      data.lastUpdated ? this.fillField('', data.lastUpdated, 'Last Updated') : Promise.resolve(),
-    ]);
 
-    return results.every(r => r.status === 'fulfilled');
+  async fillStatusInfo(data: Partial<StatusInfo>): Promise<boolean> {
+    if (data.applicationStatus) await selectDropdownByLabel('Application Status', data.applicationStatus, this.signal).catch(e => console.warn('[Status]', e));
+    if (data.lastUpdated) await fillFieldByLabel('Last Updated', data.lastUpdated, this.signal).catch(e => console.warn('[Status]', e));
+    return true;
   }
 
   // ==========================================
   // FILL ALL SECTIONS
   // ==========================================
-  /**
-   * Fill all form sections with provided data
-   * @param sections - Object containing all section data
-   */
+
   async fillAllSections(sections: {
     additionalInfo?: Partial<AdditionalCustomerInfo>;
     projectInfo?: Partial<ProjectInfo>;
@@ -600,69 +427,22 @@ export class SCEHelper {
     successful: string[];
     failed: Array<{ section: string; error: string }>;
   }> {
-    console.log('Filling all sections...');
-
-    // Build operations list
     const operations: Array<{ name: string; fn: () => Promise<boolean> }> = [];
 
-    if (sections.additionalInfo) {
-      operations.push({ name: 'Additional Customer Info', fn: () => this.fillAdditionalCustomerInfo(sections.additionalInfo!) });
-    }
-    if (sections.projectInfo) {
-      operations.push({ name: 'Project Info', fn: () => this.fillProjectInfo(sections.projectInfo!) });
-    }
-    if (sections.tradeAllyInfo) {
-      operations.push({ name: 'Trade Ally Info', fn: () => this.fillTradeAllyInfo(sections.tradeAllyInfo!) });
-    }
-    if (sections.assessmentInfo) {
-      operations.push({ name: 'Assessment Questionnaire', fn: () => this.fillAssessmentInfo(sections.assessmentInfo!) });
-    }
-    if (sections.householdInfo) {
-      operations.push({ name: 'Household Members', fn: () => this.fillHouseholdInfo(sections.householdInfo!) });
-    }
-    if (sections.enrollmentInfo) {
-      operations.push({ name: 'Enrollment Information', fn: () => this.fillEnrollmentInfo(sections.enrollmentInfo!) });
-    }
-    if (sections.equipmentInfo) {
-      operations.push({ name: 'Equipment Information', fn: () => this.fillEquipmentInfo(sections.equipmentInfo!) });
-    }
-    if (sections.basicEnrollmentInfo) {
-      operations.push({ name: 'Basic Enrollment', fn: () => this.fillBasicEnrollmentInfo(sections.basicEnrollmentInfo!) });
-    }
-    if (sections.bonusInfo) {
-      operations.push({ name: 'Bonus Program', fn: () => this.fillBonusInfo(sections.bonusInfo!) });
-    }
-    if (sections.termsInfo) {
-      operations.push({ name: 'Terms and Conditions', fn: () => this.fillTermsInfo(sections.termsInfo!) });
-    }
-    if (sections.commentsInfo) {
-      operations.push({ name: 'Comments', fn: () => this.fillCommentsInfo(sections.commentsInfo!) });
-    }
-    if (sections.statusInfo) {
-      operations.push({ name: 'Status', fn: () => this.fillStatusInfo(sections.statusInfo!) });
-    }
+    if (sections.additionalInfo) operations.push({ name: 'Additional Customer Info', fn: () => this.fillAdditionalCustomerInfo(sections.additionalInfo!) });
+    if (sections.projectInfo) operations.push({ name: 'Project Info', fn: () => this.fillProjectInfo(sections.projectInfo!) });
+    if (sections.tradeAllyInfo) operations.push({ name: 'Trade Ally Info', fn: () => this.fillTradeAllyInfo(sections.tradeAllyInfo!) });
+    if (sections.assessmentInfo) operations.push({ name: 'Assessment Questionnaire', fn: () => this.fillAssessmentInfo(sections.assessmentInfo!) });
+    if (sections.householdInfo) operations.push({ name: 'Household Members', fn: () => this.fillHouseholdInfo(sections.householdInfo!) });
+    if (sections.enrollmentInfo) operations.push({ name: 'Enrollment Information', fn: () => this.fillEnrollmentInfo(sections.enrollmentInfo!) });
+    if (sections.equipmentInfo) operations.push({ name: 'Equipment Information', fn: () => this.fillEquipmentInfo(sections.equipmentInfo!) });
+    if (sections.basicEnrollmentInfo) operations.push({ name: 'Basic Enrollment', fn: () => this.fillBasicEnrollmentInfo(sections.basicEnrollmentInfo!) });
+    if (sections.bonusInfo) operations.push({ name: 'Bonus Program', fn: () => this.fillBonusInfo(sections.bonusInfo!) });
+    if (sections.termsInfo) operations.push({ name: 'Terms and Conditions', fn: () => this.fillTermsInfo(sections.termsInfo!) });
+    if (sections.commentsInfo) operations.push({ name: 'Comments', fn: () => this.fillCommentsInfo(sections.commentsInfo!) });
+    if (sections.statusInfo) operations.push({ name: 'Status', fn: () => this.fillStatusInfo(sections.statusInfo!) });
 
-    // Execute all operations with error collection
     const results = await withErrorCollection(operations);
-
-    // Log summary
-    console.log(`All sections filling complete:`, {
-      successful: results.successful.length,
-      failed: results.failed.length,
-    });
-
-    if (results.failed.length > 0) {
-      console.warn('Failed sections:', results.failed.map(f => `${f.name}: ${f.error.message}`));
-
-      // Log errors for debugging
-      for (const failure of results.failed) {
-        logError(failure.error, `fillAllSections - ${failure.name}`);
-        const suggestion = getSuggestedFix(failure.error);
-        if (suggestion) {
-          console.info(`Suggested fix for ${failure.name}: ${suggestion}`);
-        }
-      }
-    }
 
     return {
       successful: results.successful.map(s => s.name),
@@ -672,148 +452,67 @@ export class SCEHelper {
 }
 
 // ==========================================
-// HELPER FUNCTIONS (Standalone)
+// STANDALONE EXPORTS (backward compat)
 // ==========================================
 
-/**
- * Set dropdown field by label text
- * @param labelText - The label text to find the dropdown
- * @param value - The value to select
- */
 export async function setDropdown(labelText: string, value?: string): Promise<void> {
-  if (!value) return Promise.resolve();
-
-  const helper = new SCEHelper();
-  return helper.fillSelect('', value, true);
+  if (!value) return;
+  await selectDropdownByLabel(labelText, value);
 }
 
-/**
- * Set input field value by label text
- * @param labelText - The label text to find the input
- * @param value - The value to set
- */
 export async function setInputValue(labelText: string, value?: string): Promise<void> {
-  if (!value) return Promise.resolve();
-
-  const helper = new SCEHelper();
-  return helper.fillField('', value, labelText);
+  if (!value) return;
+  await fillFieldByLabel(labelText, value);
 }
 
-/**
- * Fill Additional Customer Information section
- * @param data - Additional customer data
- */
-export async function fillAdditionalCustomerInfo(
-  data: Partial<AdditionalCustomerInfo>
-): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillAdditionalCustomerInfo(data);
+export async function fillAdditionalCustomerInfo(data: Partial<AdditionalCustomerInfo>): Promise<boolean> {
+  return new SCEHelper().fillAdditionalCustomerInfo(data);
 }
 
-/**
- * Fill Project Information section
- * @param data - Project data
- */
 export async function fillProjectInfo(data: Partial<ProjectInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillProjectInfo(data);
+  return new SCEHelper().fillProjectInfo(data);
 }
 
-/**
- * Fill Trade Ally Information section
- * @param data - Trade ally data
- */
 export async function fillTradeAllyInfo(data: Partial<TradeAllyInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillTradeAllyInfo(data);
+  return new SCEHelper().fillTradeAllyInfo(data);
 }
 
-/**
- * Fill Assessment Questionnaire section
- * @param data - Assessment data
- */
 export async function fillAssessmentInfo(data: Partial<AssessmentInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillAssessmentInfo(data);
+  return new SCEHelper().fillAssessmentInfo(data);
 }
 
-/**
- * Fill Household Members section
- * @param data - Household data
- */
 export async function fillHouseholdInfo(data: Partial<HouseholdInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillHouseholdInfo(data);
+  return new SCEHelper().fillHouseholdInfo(data);
 }
 
-/**
- * Fill Enrollment Information section
- * @param data - Enrollment data
- */
 export async function fillEnrollmentInfo(data: Partial<EnrollmentInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillEnrollmentInfo(data);
+  return new SCEHelper().fillEnrollmentInfo(data);
 }
 
-/**
- * Fill Equipment Information section
- * @param data - Equipment data
- */
 export async function fillEquipmentInfo(data: Partial<EquipmentInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillEquipmentInfo(data);
+  return new SCEHelper().fillEquipmentInfo(data);
 }
 
-/**
- * Fill Basic Enrollment section
- * @param data - Basic enrollment data
- */
 export async function fillBasicEnrollmentInfo(data: Partial<BasicEnrollmentInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillBasicEnrollmentInfo(data);
+  return new SCEHelper().fillBasicEnrollmentInfo(data);
 }
 
-/**
- * Fill Bonus Program section
- * @param data - Bonus data
- */
 export async function fillBonusInfo(data: Partial<BonusInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillBonusInfo(data);
+  return new SCEHelper().fillBonusInfo(data);
 }
 
-/**
- * Fill Terms and Conditions section
- * @param data - Terms data
- */
 export async function fillTermsInfo(data: Partial<TermsInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillTermsInfo(data);
+  return new SCEHelper().fillTermsInfo(data);
 }
 
-/**
- * Fill Comments section
- * @param data - Comments data
- */
 export async function fillCommentsInfo(data: Partial<CommentsInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillCommentsInfo(data);
+  return new SCEHelper().fillCommentsInfo(data);
 }
 
-/**
- * Fill Status section
- * @param data - Status data
- */
 export async function fillStatusInfo(data: Partial<StatusInfo>): Promise<boolean> {
-  const helper = new SCEHelper();
-  return helper.fillStatusInfo(data);
+  return new SCEHelper().fillStatusInfo(data);
 }
 
-/**
- * Fill all sections at once
- * @param sections - All section data
- * @returns Result with successful and failed sections
- */
 export async function fillAllSections(sections: {
   additionalInfo?: Partial<AdditionalCustomerInfo>;
   projectInfo?: Partial<ProjectInfo>;
@@ -831,6 +530,5 @@ export async function fillAllSections(sections: {
   successful: string[];
   failed: Array<{ section: string; error: string }>;
 }> {
-  const helper = new SCEHelper();
-  return helper.fillAllSections(sections);
+  return new SCEHelper().fillAllSections(sections);
 }

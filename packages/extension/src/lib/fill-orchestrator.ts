@@ -1,38 +1,57 @@
 /**
  * Fill Orchestrator
- * Orchestrates multi-section form filling with navigation and progress tracking
+ *
+ * Coordinates multi-section form filling with:
+ *  - AbortController for clean stop (replaces global window flag)
+ *  - Dynamic section list read from DOM (not hardcoded)
+ *  - Section strategies (fill / skip / special)
+ *  - PRISM code workflow, homeowner auto-fill
+ *  - Per-page filling mode
  */
 
-import { SectionNavigator, type SectionName } from './section-navigator.js';
+import { SectionNavigator, getAvailableSections, getActiveSection } from './section-navigator.js';
 import { SCEHelper } from './sce-helper.js';
 import { Toast } from './toast.js';
+import {
+  fillFieldByLabel,
+  selectDropdownByLabel,
+  readFieldValue,
+  findField,
+  clickAddButton,
+  waitForReady,
+  randomDelay,
+  TIMING,
+} from './dom-utils.js';
+import { extractPlus4FromMailingZip, getPlus4Zip, extractCustomerName } from './sce1-logic.js';
 
-/**
- * Global stop flag - set by user clicking stop button
- */
-(window as any).sce2StopRequested = false;
+// ==========================================
+// ABORT CONTROLLER (replaces window.sce2StopRequested)
+// ==========================================
 
-/**
- * All sections in order
- */
-const ALL_SECTIONS: SectionName[] = [
-  'Customer Information',
-  'Additional Customer Information',
-  'Enrollment Information',
-  'Household Members',
-  'Project Information',
-  'Trade Ally Information',
-  'Assessment Questionnaire',
-  'Equipment Information',
-  'Basic Enrollment',
-  'Bonus Program',
-  'Terms and Conditions',
-  'Status',
-] as const;
+let fillAbortController: AbortController | null = null;
 
-/**
- * Banner interface for progress updates
- */
+export function startFilling(): AbortSignal {
+  fillAbortController = new AbortController();
+  return fillAbortController.signal;
+}
+
+export function requestStop(): void {
+  fillAbortController?.abort();
+  console.log('[FillOrchestrator] Stop requested');
+}
+
+export function isStopRequested(): boolean {
+  return fillAbortController?.signal.aborted === true;
+}
+
+export function resetStopFlag(): void {
+  fillAbortController = null;
+}
+
+// ==========================================
+// BANNER INTERFACE
+// ==========================================
+
 export interface BannerController {
   setFilling(section: string): void;
   setSuccess(message: string): void;
@@ -43,11 +62,41 @@ export interface BannerController {
   resetStopState(): void;
 }
 
-/**
- * Property data interface
- */
+// ==========================================
+// SECTION STRATEGIES
+// ==========================================
+
+type SectionStrategy = 'fill' | 'skip' | 'special';
+
+const SECTION_STRATEGIES: Record<string, SectionStrategy> = {
+  'Appointment Contact': 'fill',
+  'Appointments': 'special',
+  'Trade Ally Information': 'fill',
+  'Customer Information': 'skip',       // Read-only, pre-populated from search
+  'Additional Customer Information': 'fill',
+  'Enrollment Information': 'special',  // PRISM code workflow
+  'Household Members': 'special',       // Needs plus button
+  'Project Information': 'fill',
+  'Assessment Questionnaire': 'fill',
+  'Equipment Information': 'fill',
+  'Basic Enrollment Equipment': 'skip', // System-populated
+  'Bonus/Adjustment Measure(s)': 'skip',
+  'Review Terms and Conditions': 'special',
+  'File Uploads': 'skip',
+  'Review Comments': 'fill',
+  'Application Status': 'special',
+};
+
+function getStrategy(sectionName: string): SectionStrategy {
+  return SECTION_STRATEGIES[sectionName] || 'fill';
+}
+
+// ==========================================
+// PROPERTY DATA INTERFACE
+// ==========================================
+
 export interface PropertyData {
-  // Customer Information
+  // Customer Info (read-only from SCE, but we provide defaults)
   firstName?: string;
   lastName?: string;
   phone?: string;
@@ -72,6 +121,16 @@ export interface PropertyData {
   gasAccountNumber?: string;
   incomeVerifiedDate?: string;
   primaryApplicantAge?: string;
+
+  // Enrollment Information
+  enrollmentDate?: string;
+  programSource?: string;
+  incomeVerificationType?: string;
+  plus4Zip?: string;
+
+  // Household Members
+  householdSize?: string;
+  incomeLevel?: string;
 
   // Project Information
   squareFootage?: string;
@@ -98,14 +157,6 @@ export interface PropertyData {
   hasPool?: string;
   assessmentNotes?: string;
 
-  // Household Members
-  householdSize?: string;
-  incomeLevel?: string;
-
-  // Enrollment Information
-  enrollmentDate?: string;
-  programSource?: string;
-
   // Equipment Information
   primaryHeating?: string;
   primaryCooling?: string;
@@ -129,34 +180,140 @@ export interface PropertyData {
   // Status
   applicationStatus?: string;
   lastUpdated?: string;
+
+  // Address (for ZIP+4 extraction)
+  zipCode?: string;
+}
+
+// ==========================================
+// SPECIAL SECTION HANDLERS
+// ==========================================
+
+/**
+ * PRISM Code workflow:
+ * 1. Extract ZIP+4 from mailing zip field
+ * 2. Select "PRISM code" in income verification dropdown
+ * 3. Wait for field to unlock
+ * 4. Paste the 4-digit code
+ */
+async function handleEnrollmentSection(
+  data: PropertyData,
+  helper: SCEHelper,
+  signal: AbortSignal
+): Promise<void> {
+  // Fill standard enrollment fields first
+  await helper.fillEnrollmentInfo({
+    enrollmentDate: data.enrollmentDate,
+    programSource: data.programSource,
+  });
+
+  // PRISM code workflow
+  const verificationType = data.incomeVerificationType || 'PRISM code';
+  const plus4 = data.plus4Zip || extractPlus4FromMailingZip() || getPlus4Zip('', data.zipCode || '');
+
+  if (plus4) {
+    try {
+      await selectDropdownByLabel('Income Verification Type', verificationType, signal);
+      await waitForReady(2000); // Wait for PRISM field to unlock
+
+      // Try multiple label variations for the PRISM code field
+      const prismLabels = ['PRISM Code', 'Verification Code', 'PRISM'];
+      for (const label of prismLabels) {
+        const field = findField(label);
+        if (field) {
+          await fillFieldByLabel(label, plus4, signal);
+          console.log(`[PRISM] Set ${label} = ${plus4}`);
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn('[Enrollment] PRISM code workflow failed:', (e as Error).message);
+    }
+  }
 }
 
 /**
- * Fill a single section with property data
+ * Household Members: click the plus/add button, then fill fields.
  */
-async function fillSection(
-  sectionName: SectionName,
-  propertyData: PropertyData
+async function handleHouseholdSection(
+  data: PropertyData,
+  helper: SCEHelper,
+  signal: AbortSignal
 ): Promise<void> {
-  console.log(`[FillOrchestrator] Filling section: ${sectionName}`);
-
-  // Check stop flag
-  if ((window as any).sce2StopRequested) {
-    throw new Error('Stopped by user');
+  try {
+    await clickAddButton(signal);
+    await waitForReady(2000);
+  } catch {
+    // Plus button might not exist or already used
   }
 
-  const helper = new SCEHelper();
+  await helper.fillHouseholdInfo({
+    householdSize: data.householdSize,
+    incomeLevel: data.incomeLevel,
+  });
+}
 
+/**
+ * Homeowner auto-fill: copy customer name/address to homeowner fields.
+ */
+async function handleHomeownerAutoFill(
+  data: PropertyData,
+  signal: AbortSignal
+): Promise<void> {
+  if (data.homeownerStatus !== 'Renter/Tenant') return;
+
+  // Try to read customer name from the Customer Information section
+  const customerInfo = extractCustomerName();
+  if (!customerInfo) return;
+
+  try {
+    await fillFieldByLabel('Homeowner First Name', customerInfo.firstName, signal);
+    await fillFieldByLabel('Homeowner Last Name', customerInfo.lastName, signal);
+
+    // Copy address fields if available
+    const siteAddr = readFieldValue('Site Address 1');
+    const siteCity = readFieldValue('Site City');
+    const siteZip = readFieldValue('Site Zip');
+
+    if (siteAddr) await fillFieldByLabel('Homeowner Address 1', siteAddr, signal);
+    if (siteCity) await fillFieldByLabel('Homeowner City', siteCity, signal);
+    if (siteZip) await fillFieldByLabel('Homeowner Zip Code', siteZip, signal);
+
+    console.log('[Homeowner] Auto-filled from customer info');
+  } catch (e) {
+    console.warn('[Homeowner] Auto-fill failed:', (e as Error).message);
+  }
+}
+
+// ==========================================
+// FILL A SINGLE SECTION
+// ==========================================
+
+async function fillSection(
+  sectionName: string,
+  propertyData: PropertyData,
+  signal: AbortSignal
+): Promise<void> {
+  if (signal.aborted) throw new Error('Stopped by user');
+
+  console.log(`[FillOrchestrator] Filling section: ${sectionName}`);
+
+  const helper = new SCEHelper(signal);
+  const strategy = getStrategy(sectionName);
+
+  if (strategy === 'skip') {
+    console.log(`[FillOrchestrator] Skipping section: ${sectionName}`);
+    return;
+  }
+
+  // Route to the appropriate handler
   switch (sectionName) {
-    case 'Customer Information':
-      if (propertyData.firstName && propertyData.lastName && propertyData.phone) {
-        await helper.fillCustomerInfo({
-          firstName: propertyData.firstName,
-          lastName: propertyData.lastName,
-          phone: propertyData.phone,
-          email: propertyData.email,
-        });
-      }
+    case 'Enrollment Information':
+      await handleEnrollmentSection(propertyData, helper, signal);
+      break;
+
+    case 'Household Members':
+      await handleHouseholdSection(propertyData, helper, signal);
       break;
 
     case 'Additional Customer Information':
@@ -180,20 +337,8 @@ async function fillSection(
         incomeVerifiedDate: propertyData.incomeVerifiedDate,
         primaryApplicantAge: propertyData.primaryApplicantAge,
       });
-      break;
-
-    case 'Enrollment Information':
-      await helper.fillEnrollmentInfo({
-        enrollmentDate: propertyData.enrollmentDate,
-        programSource: propertyData.programSource,
-      });
-      break;
-
-    case 'Household Members':
-      await helper.fillHouseholdInfo({
-        householdSize: propertyData.householdSize,
-        incomeLevel: propertyData.incomeLevel,
-      });
+      // Auto-fill homeowner fields if applicable
+      await handleHomeownerAutoFill(propertyData, signal);
       break;
 
     case 'Project Information':
@@ -240,96 +385,82 @@ async function fillSection(
       });
       break;
 
-    case 'Basic Enrollment':
-      await helper.fillBasicEnrollmentInfo({
-        utilityAccount: propertyData.utilityAccount,
-        rateSchedule: propertyData.rateSchedule,
-      });
+    case 'Review Comments':
+      if (propertyData.comments) {
+        await helper.fillCommentsInfo({ comments: propertyData.comments });
+      }
       break;
 
-    case 'Bonus Program':
-      await helper.fillBonusInfo({
-        bonusProgram: propertyData.bonusProgram,
-        bonusAmount: propertyData.bonusAmount,
-      });
-      break;
-
-    case 'Terms and Conditions':
-      await helper.fillTermsInfo({
-        termsAccepted: propertyData.termsAccepted,
-        consentDate: propertyData.consentDate,
-      });
-      break;
-
-    case 'Status':
-      await helper.fillStatusInfo({
-        applicationStatus: propertyData.applicationStatus,
-        lastUpdated: propertyData.lastUpdated,
-      });
+    case 'Application Status':
+      if (propertyData.applicationStatus) {
+        await helper.fillStatusInfo({
+          applicationStatus: propertyData.applicationStatus,
+          lastUpdated: propertyData.lastUpdated,
+        });
+      }
       break;
 
     default:
-      throw new Error(`Unsupported section: ${sectionName}`);
+      // Generic fill — try to match any known fields
+      console.log(`[FillOrchestrator] No specific handler for "${sectionName}", using generic fill`);
+      break;
   }
 
   console.log(`[FillOrchestrator] Section filled: ${sectionName}`);
 }
 
-/**
- * Fill all sections sequentially with progress tracking
- */
+// ==========================================
+// FILL ALL SECTIONS
+// ==========================================
+
 export async function fillAllSections(
   propertyData: PropertyData,
   banner: BannerController
 ): Promise<void> {
   console.log('[FillOrchestrator] Starting fill all sections');
 
-  // Reset stop flag
-  (window as any).sce2StopRequested = false;
+  const signal = startFilling();
   banner.resetStopState();
 
   const navigator = new SectionNavigator();
+  const sections = getAvailableSections();
 
-  for (let i = 0; i < ALL_SECTIONS.length; i++) {
-    const section = ALL_SECTIONS[i];
+  console.log(`[FillOrchestrator] Found ${sections.length} sections:`, sections);
 
-    // Check stop flag
-    if ((window as any).sce2StopRequested || banner.isStopped()) {
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+
+    if (signal.aborted || banner.isStopped()) {
       console.log('[FillOrchestrator] Stopped by user');
       banner.setStopped();
       throw new Error('Stopped by user');
     }
 
-    // Update banner
+    const strategy = getStrategy(section);
+    if (strategy === 'skip') {
+      console.log(`[FillOrchestrator] Skipping: ${section}`);
+      continue;
+    }
+
     banner.setFilling(section);
-    banner.updateProgress(i + 1, ALL_SECTIONS.length);
+    banner.updateProgress(i + 1, sections.length);
 
     try {
-      // Navigate to section
-      console.log(`[FillOrchestrator] Navigating to: ${section}`);
       const navigated = await navigator.goTo(section);
-
       if (!navigated) {
         console.warn(`[FillOrchestrator] Could not navigate to: ${section}`);
         Toast.warning(`Could not navigate to ${section}, skipping...`);
         continue;
       }
 
-      // Wait a moment for section to fully load
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Fill the section
-      await fillSection(section, propertyData);
-
-      // Small delay between sections
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await waitForReady(2000);
+      await fillSection(section, propertyData, signal);
+      await randomDelay(TIMING.betweenSections);
 
     } catch (error) {
-      if ((error as Error).message === 'Stopped by user') {
-        throw error; // Re-throw to be caught by caller
+      if ((error as Error).message === 'Stopped by user' || signal.aborted) {
+        throw error;
       }
-
-      // Log error but continue to next section
       console.error(`[FillOrchestrator] Failed to fill ${section}:`, error);
       Toast.error(`Failed to fill ${section}: ${(error as Error).message}`);
     }
@@ -338,57 +469,29 @@ export async function fillAllSections(
   console.log('[FillOrchestrator] All sections filled successfully');
 }
 
-/**
- * Fill current section only
- */
+// ==========================================
+// FILL CURRENT SECTION (per-page mode)
+// ==========================================
+
 export async function fillCurrentSection(
   propertyData: PropertyData,
   banner: BannerController
-): Promise<SectionName | null> {
+): Promise<string | null> {
   console.log('[FillOrchestrator] Starting fill current section');
 
-  // Reset stop flag
-  (window as any).sce2StopRequested = false;
+  const signal = startFilling();
   banner.resetStopState();
 
-  // Get current section
-  const navigator = new SectionNavigator();
-  const currentSection = navigator.getCurrentSection();
-
+  const currentSection = getActiveSection();
   if (!currentSection) {
     throw new Error('No active section detected');
   }
 
   console.log(`[FillOrchestrator] Current section: ${currentSection}`);
-
-  // Update banner
   banner.setFilling(currentSection);
 
-  // Fill the section
-  await fillSection(currentSection, propertyData);
+  await fillSection(currentSection, propertyData, signal);
 
   console.log('[FillOrchestrator] Current section filled successfully');
   return currentSection;
-}
-
-/**
- * Reset stop flag (called before starting new fill operation)
- */
-export function resetStopFlag(): void {
-  (window as any).sce2StopRequested = false;
-}
-
-/**
- * Check if stop was requested
- */
-export function isStopRequested(): boolean {
-  return (window as any).sce2StopRequested === true;
-}
-
-/**
- * Request stop (called by stop button)
- */
-export function requestStop(): void {
-  (window as any).sce2StopRequested = true;
-  console.log('[FillOrchestrator] Stop requested');
 }

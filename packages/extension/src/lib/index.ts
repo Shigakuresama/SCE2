@@ -100,20 +100,36 @@ export {
 // ==========================================
 export {
   SectionNavigator,
-  SECTION_NAMES,
   type SectionName,
   getActiveSection,
-  isSectionVisible,
+  getAvailableSections,
   navigateToSection,
-  goToNextSection,
-  goToPreviousSection,
+  isSectionAvailable,
   waitForSection,
-  getVisibleSections,
-  isFirstSection,
-  isLastSection,
-  getCurrentSectionIndex,
-  navigateThroughAllSections,
 } from './section-navigator.js';
+
+// ==========================================
+// DOM UTILITIES
+// ==========================================
+export {
+  waitForReady,
+  waitForElement,
+  retry,
+  setValueSafe,
+  findField,
+  findFormField,
+  findSelect,
+  fillFieldByLabel,
+  selectDropdownByLabel,
+  clickCheckbox,
+  fillDateField,
+  clickAddButton,
+  clickButtonByText,
+  readFieldValue,
+  sleep as domSleep,
+  randomDelay,
+  TIMING,
+} from './dom-utils.js';
 
 // ==========================================
 // ERROR HANDLING
@@ -259,4 +275,4 @@ export { sleep } from './sce-helper.js';
 // ==========================================
 // TYPE RE-EXPORTS
 // ==========================================
-export type { CustomerSearchData, CustomerInfoData, SelectOption, DocumentData } from './sce-helper.js';
+export type { CustomerSearchData, CustomerInfoData, DocumentData } from './sce-helper.js';
