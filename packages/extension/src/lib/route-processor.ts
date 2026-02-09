@@ -83,24 +83,9 @@ export async function processRouteAddress(
         throw new Error(fillResult?.error || 'Failed to fill form');
       }
 
-      console.log('[Route] ✓ Form filled');
+      console.log('[Route] ✓ Data extracted:', fillResult.data);
 
-      // 4. Wait for search and data load
-      await sleep(finalConfig.captureDelay);
-
-      // 5. Capture customer data
-      console.log('[Route] Capturing customer data...');
-      const captureResult = await sendToContentScript(tabId, {
-        action: 'captureRouteData'
-      }, 30000);
-
-      if (!captureResult || !captureResult.success) {
-        throw new Error(captureResult?.error || 'Failed to capture data');
-      }
-
-      console.log('[Route] ✓ Data captured:', captureResult.data);
-
-      // 6. Screenshot (optional, for documentation)
+      // 4. Screenshot (optional, for documentation)
       let screenshotDataUrl: string | undefined;
       try {
         await sleep(finalConfig.screenshotDelay);
@@ -111,17 +96,17 @@ export async function processRouteAddress(
         // Non-fatal, continue
       }
 
-      // 7. Close tab
+      // 5. Close tab
       await closeTab(tabId);
       tabId = null;
       console.log('[Route] ✓ Tab closed');
 
-      // 8. Return success result
+      // 6. Return success result
       const result: RouteProcessResult = {
         success: true,
         address: address.full,
-        customerName: captureResult.data?.customerName,
-        customerPhone: captureResult.data?.customerPhone,
+        customerName: fillResult.data?.customerName,
+        customerPhone: fillResult.data?.customerPhone,
         screenshot: screenshotDataUrl,
         timestamp: new Date().toISOString()
       };

@@ -1,6 +1,6 @@
 // packages/webapp/src/components/RouteProcessor.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import type { Property } from '../types';
 
 interface RouteProcessorProps {
@@ -24,10 +24,18 @@ export const RouteProcessor: React.FC<RouteProcessorProps> = ({
     message: ''
   });
   const [results, setResults] = useState<any[]>([]);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const propertiesToProcess = selectedProperties.length > 0
     ? selectedProperties
     : properties;
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
 
   const handleProcess = async () => {
     if (propertiesToProcess.length === 0) {
@@ -35,7 +43,6 @@ export const RouteProcessor: React.FC<RouteProcessorProps> = ({
       return;
     }
 
-    // Check if extension is available
     if (typeof chrome === 'undefined' || !chrome.runtime) {
       alert('Route processing requires the Chrome Extension to be installed. Please load the SCE2 extension and try again.');
       return;
@@ -50,12 +57,10 @@ export const RouteProcessor: React.FC<RouteProcessorProps> = ({
         message: 'Starting...'
       });
 
-      // Convert properties to route addresses
       const addresses = propertiesToProcess.map(prop => {
         const parts = prop.addressFull?.split(',') || [];
         const streetPart = parts[0]?.trim() || '';
         const zipPart = parts[parts.length - 1]?.trim() || prop.zipCode || '';
-
         const streetParts = streetPart.split(/\s+/);
         const number = streetParts[0] || '';
         const street = streetParts.slice(1).join(' ');
@@ -70,57 +75,66 @@ export const RouteProcessor: React.FC<RouteProcessorProps> = ({
         };
       });
 
-      // Send to extension background script
-      const response = await chrome.runtime.sendMessage({
+      // Start batch processing (returns when complete)
+      const responsePromise = chrome.runtime.sendMessage({
         action: 'PROCESS_ROUTE_BATCH',
-        addresses: addresses,
-        config: {
-          maxConcurrentTabs: 3
-        }
+        addresses,
+        config: { maxConcurrentTabs: 3 }
       });
+
+      // Poll for progress every 2 seconds while batch runs
+      pollingRef.current = setInterval(async () => {
+        try {
+          const status = await chrome.runtime.sendMessage({
+            action: 'GET_ROUTE_STATUS'
+          });
+          if (status?.success && status.data) {
+            const { processedCount, totalCount, successfulCount, failedCount, isProcessing } = status.data;
+            const percent = totalCount > 0 ? Math.round((processedCount / totalCount) * 100) : 0;
+            setProgress({
+              current: processedCount,
+              total: totalCount,
+              percent,
+              message: isProcessing
+                ? `Processing ${processedCount}/${totalCount}...`
+                : `Complete: ${successfulCount} successful, ${failedCount} failed`
+            });
+
+            if (!isProcessing && processedCount > 0) {
+              stopPolling();
+            }
+          }
+        } catch {
+          // Extension may be busy, skip this poll
+        }
+      }, 2000);
+
+      // Wait for the final response
+      const response = await responsePromise;
+      stopPolling();
 
       if (response && response.success) {
         setResults(response.data.results);
+        setProgress({
+          current: response.data.results.length,
+          total: response.data.results.length,
+          percent: 100,
+          message: `Complete: ${response.data.results.filter((r: any) => r.success).length} successful`
+        });
         onProcessingComplete(response.data.results);
-        onPropertiesUpdated(); // Refresh to show extracted data
- } else {
+        onPropertiesUpdated();
+      } else {
         throw new Error(response?.error || 'Processing failed');
       }
 
     } catch (error) {
+      stopPolling();
       console.error('Processing failed:', error);
       alert(`Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setProcessing(false);
     }
   };
-
-  // Listen for progress updates from extension
-  useEffect(() => {
-    // Only set up chrome listener if we're in extension context
-    if (typeof chrome === 'undefined' || !chrome.runtime) {
-      return;
-    }
-
-    const handleMessage = (message: any) => {
-      if (message.action === 'ROUTE_PROGRESS') {
-        setProgress(message.data);
-      } else if (message.action === 'ROUTE_COMPLETE') {
-        setResults(message.data.results);
-        setProcessing(false);
-        onProcessingComplete(message.data.results);
-        onPropertiesUpdated();
-      } else if (message.action === 'ROUTE_ERROR') {
-        setProcessing(false);
-        alert(`Error: ${message.data.error}`);
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(handleMessage);
-    return () => {
-      chrome.runtime.onMessage.removeListener(handleMessage);
-    };
-  }, [onProcessingComplete, onPropertiesUpdated]);
 
   const successful = results.filter(r => r.success).length;
   const failed = results.filter(r => !r.success).length;
@@ -200,7 +214,7 @@ export const RouteProcessor: React.FC<RouteProcessorProps> = ({
             ) : (
               <>
                 <svg className="-ml-1 mr-3 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v1.828c0 .728-.029 1.417-.217 1.828l1.965-1.965a1.023 1.023 0 00-.978-.547l-1.415-1.415a1 1 0 00-.547-.978L12 2.5a1 1 0 00-.978-.547L9.607 4.012c-.351.351-.921.217-1.828H8a2 2 0 00-2 2v6a2 2 0 002 2v-5.968a1 1 0 00.547-.978l1.415-1.415a1 1 0 00.978-.547l1.965 1.965c.351.351.921.217 1.828H13a2 2 0 002-2V2.5a2 2 0 00-2-2H7a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
                 Extract Customer Data
               </>
