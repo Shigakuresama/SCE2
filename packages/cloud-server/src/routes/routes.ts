@@ -123,6 +123,39 @@ routeRoutes.post(
   })
 );
 
+// POST /api/routes/mobile-plan - Create mobile route plan scaffold
+routeRoutes.post(
+  '/mobile-plan',
+  asyncHandler(async (req, res) => {
+    const { name, propertyIds } = req.body;
+
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      throw new ValidationError('name is required and must be a non-empty string');
+    }
+
+    if (!Array.isArray(propertyIds) || propertyIds.length === 0) {
+      throw new ValidationError('propertyIds is required and must be a non-empty array');
+    }
+
+    if (propertyIds.length > 1000) {
+      throw new ValidationError('Cannot add more than 1000 properties to a route');
+    }
+
+    if (propertyIds.some(id => !Number.isInteger(id) || id <= 0)) {
+      throw new ValidationError('propertyIds must contain valid positive integers');
+    }
+
+    res.status(201).json({
+      success: true,
+      data: {
+        routeId: 0,
+        orderedPropertyIds: propertyIds,
+        properties: [],
+      },
+    });
+  })
+);
+
 // POST /api/routes/:id/properties - Add properties to route
 routeRoutes.post(
   '/:id/properties',
