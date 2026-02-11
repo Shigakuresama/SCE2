@@ -19,7 +19,7 @@ This runbook covers deployment procedures, monitoring, common issues, and rollba
 
 Use this sequence for day-to-day operations:
 
-1. Open webapp `/mobile-pack` (desktop or phone), select houses, and tap **Plan Route**.
+1. Open webapp route builder (`/mobile-pack` locally or `/#/mobile-pack` on deployed static hosting), select houses, and tap **Plan Route**.
 2. Tap **Generate PDF** to download the fillable QR route sheet with persisted ordered stops.
 3. Optional (desktop): run extension extraction first if you need fresh customer name/phone before PDF.
 4. In field, scan each QR from mobile-web and upload:
@@ -100,6 +100,7 @@ GitHub Push (main branch) → Render Webhook → Auto-Build → Auto-Deploy
 **Trigger:** Push to `main` branch
 **Build Time:** ~2-3 minutes per service
 **Downtime:** Zero (static sites), ~30 seconds (cloud server)
+**Current webapp slug:** `sce2-webap` (`https://sce2-webap.onrender.com`)
 
 #### Manual Deployment (via Render Dashboard)
 
@@ -118,10 +119,14 @@ npm install -g @render/cli
 # Login
 render login
 
-# Deploy specific service
-render deploy sce2-cloud-server
-render deploy sce2-webap
-render deploy sce2-mobile
+# Find service IDs
+render services list -o json | jq -r '.[] | .service? | select(.name=="sce2-cloud-server" or .name=="sce2-webap" or .name=="sce2-mobile") | [.name,.id] | @tsv'
+
+# Trigger deploys (replace <service-id>)
+render deploys create <service-id>
+
+# Check latest deploy status
+render deploys list <service-id> -o json | jq '.[0] | {id,status,commit: .commit.id,finishedAt}'
 ```
 
 ### Database Migration
@@ -808,5 +813,5 @@ npm run build
 
 ---
 
-**Last Updated:** 2025-02-08
+**Last Updated:** 2026-02-11
 **Version:** 1.0.0

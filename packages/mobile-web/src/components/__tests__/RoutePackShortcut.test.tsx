@@ -12,8 +12,9 @@ describe('Route pack shortcut', () => {
 
     render(<App />);
 
-    expect(
-      screen.getByRole('link', { name: /create route pdf/i })
-    ).toHaveAttribute('href');
+    expect(screen.getByRole('link', { name: /create route pdf/i })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/\/#\/mobile-pack$/)
+    );
   });
 });

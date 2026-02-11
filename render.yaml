@@ -35,7 +35,7 @@ services:
   # Webapp (Desktop) - FREE Static Site
   # ===========================================
   - type: web
-    name: sce2-webapp
+    name: sce2-webap
     env: static
     region: oregon
     plan: free
@@ -66,7 +66,7 @@ services:
       - key: VITE_API_BASE_URL
         value: https://sce2-cloud-server.onrender.com
       - key: VITE_WEBAPP_BASE_URL
-        value: https://sce2-webapp.onrender.com
+        value: https://sce2-webap.onrender.com
     routes:
       - type: rewrite
         src: /.*

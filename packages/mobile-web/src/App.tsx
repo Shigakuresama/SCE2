@@ -92,7 +92,7 @@ function App() {
           <h1 className="text-xl font-bold">Scan QR Code</h1>
           <p className="text-sm opacity-90">Point camera at property QR code</p>
           <a
-            href={`${config.WEBAPP_BASE_URL}/mobile-pack`}
+            href={`${config.WEBAPP_BASE_URL}/#/mobile-pack`}
             target="_blank"
             rel="noreferrer"
             className="inline-block mt-3 rounded bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800"

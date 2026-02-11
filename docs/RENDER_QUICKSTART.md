@@ -52,15 +52,16 @@ See `docs/RENDER_DEPLOYMENT.md` for detailed manual steps.
 
 After deployment, your URLs will be:
 - **API**: `https://sce2-cloud-server.onrender.com`
-- **Webapp**: `https://sce2-webapp.onrender.com`
+- **Webapp**: `https://sce2-webap.onrender.com`
 - **Mobile**: `https://sce2-mobile.onrender.com`
 
 ### 6. Test
 
 1. Open webapp URL
-2. Generate a PDF with QR codes
-3. Scan QR code with phone
-4. Should open mobile upload page! 📱
+2. Open route builder at `https://sce2-webap.onrender.com/#/mobile-pack`
+3. Generate a PDF with QR codes
+4. Scan QR code with phone
+5. Should open mobile upload page! 📱
 
 ## 💰 Cost
 
@@ -94,6 +95,10 @@ After deployment, your URLs will be:
 **API returns 403?**
 - Check `ALLOWED_ORIGINS` environment variable
 - Should include your Render URLs
+
+**Webapp URL returns 404?**
+- The current production webapp slug is `sce2-webap` (without the second `p`)
+- Use `https://sce2-webap.onrender.com`
 
 **QR codes don't work?**
 - Check `VITE_MOBILE_BASE_URL` in webapp

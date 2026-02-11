@@ -35,7 +35,7 @@ git push origin main
 
 Render will automatically deploy all services:
 - `sce2-cloud-server` (API)
-- `sce2-webapp` (Desktop web app)
+- `sce2-webap` (Desktop web app)
 - `sce2-mobile` (Mobile web app)
 - `sce2-db` (PostgreSQL database)
 
@@ -63,7 +63,7 @@ Render will automatically deploy all services:
 5. Add Environment Variables:
    - `NODE_ENV` = `production`
    - `PORT` = `3333`
-   - `ALLOWED_ORIGINS` = `https://sce2-webapp.onrender.com,https://sce2-mobile.onrender.com`
+   - `ALLOWED_ORIGINS` = `https://sce2-webap.onrender.com,https://sce2-mobile.onrender.com`
    - `BASE_URL` = `https://sce2-cloud-server.onrender.com`
    - Connect the `sce2-db` database as `DATABASE_URL`
 6. Click **"Deploy Web Service"**
@@ -72,7 +72,7 @@ Render will automatically deploy all services:
 1. Click **"New +"**
 2. Select **"Static Site"**
 3. Configure:
-   - **Name**: `sce2-webapp`
+   - **Name**: `sce2-webap`
    - **Build Command**: `npm install && npm run build --workspace=packages/webapp`
    - **Publish Directory**: `./packages/webapp/dist`
    - **Plan**: **Free**
@@ -107,22 +107,25 @@ curl https://sce2-cloud-server.onrender.com/api/health
 ```
 
 ### Access Webapps
-- **Desktop**: https://sce2-webapp.onrender.com
+- **Desktop**: https://sce2-webap.onrender.com
 - **Mobile**: https://sce2-mobile.onrender.com
 
 ### Generate Test PDF
 1. Open webapp URL
-2. Add some properties
-3. Generate PDF with QR codes
-4. Scan QR code with your phone
-5. Should open mobile upload interface
+2. Open route builder at `https://sce2-webap.onrender.com/#/mobile-pack`
+3. Add some properties
+4. Generate PDF with QR codes
+5. Scan QR code with your phone
+6. Should open mobile upload interface
 
 ## URLs After Deployment
 
 Once deployed, your URLs will be:
 - **API**: `https://sce2-cloud-server.onrender.com`
-- **Webapp**: `https://sce2-webapp.onrender.com`
+- **Webapp**: `https://sce2-webap.onrender.com`
 - **Mobile**: `https://sce2-mobile.onrender.com`
+
+> Note: Production currently uses the `sce2-webap` slug. `sce2-webapp.onrender.com` is not active.
 
 ## Important Notes
 
