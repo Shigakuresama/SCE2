@@ -67,7 +67,7 @@ Use this flow for server-side extraction without the extension:
    - Credentials are only used for this request and are not persisted in `ExtractionSession`.
 4. Fallback (manual JSON):
    - Start login from:
-     `https://sce-trade-ally-community.my.site.com/tradeally/s/login/?ec=302&inst=Vt&startURL=%2Ftradeally%2Fsite%2FSiteLogin.apexp`
+     `https://sce-trade-ally-community.my.site.com/tradeally/s/login/`
    - After login succeeds, open:
      `https://sce.dsmcentral.com/onsite/customer-search`
    - Capture storage-state JSON only after you can see the authenticated SCE flow.

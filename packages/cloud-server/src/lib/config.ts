@@ -30,7 +30,7 @@ export const config = {
   sceFormPath: process.env.SCE_FORM_PATH || '/onsite/customer-search',
   sceLoginUrl:
     process.env.SCE_LOGIN_URL ||
-    'https://sce-trade-ally-community.my.site.com/tradeally/s/login/?ec=302&inst=Vt&startURL=%2Ftradeally%2Fsite%2FSiteLogin.apexp',
+    'https://sce-trade-ally-community.my.site.com/tradeally/s/login/',
 
   // Scraping
   scrapeDelayMs: parseInt(process.env.SCRAPE_DELAY_MS || '2000'),
