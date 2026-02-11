@@ -55,10 +55,17 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [startingRun, setStartingRun] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
+  const [creatingBridgeSession, setCreatingBridgeSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionLabel, setSessionLabel] = useState('SCE Operator Session');
   const [sessionStateJson, setSessionStateJson] = useState('');
   const [sessionExpiresAt, setSessionExpiresAt] = useState(
+    toDatetimeLocalValue(new Date(Date.now() + 8 * 60 * 60 * 1000))
+  );
+  const [bridgeLabel, setBridgeLabel] = useState('SCE Login Bridge Session');
+  const [bridgeUsername, setBridgeUsername] = useState('');
+  const [bridgePassword, setBridgePassword] = useState('');
+  const [bridgeExpiresAt, setBridgeExpiresAt] = useState(
     toDatetimeLocalValue(new Date(Date.now() + 8 * 60 * 60 * 1000))
   );
 
@@ -172,6 +179,47 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
     }
   };
 
+  const handleCreateBridgeSession = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+
+    if (!bridgeLabel.trim()) {
+      setError('Bridge session label is required.');
+      return;
+    }
+    if (!bridgeUsername.trim()) {
+      setError('SCE username is required.');
+      return;
+    }
+    if (!bridgePassword) {
+      setError('SCE password is required.');
+      return;
+    }
+
+    const expiresAtDate = new Date(bridgeExpiresAt);
+    if (Number.isNaN(expiresAtDate.getTime())) {
+      setError('Bridge session expiration must be valid.');
+      return;
+    }
+
+    setCreatingBridgeSession(true);
+    try {
+      const created = await api.createExtractionSessionFromLogin({
+        label: bridgeLabel.trim(),
+        username: bridgeUsername.trim(),
+        password: bridgePassword,
+        expiresAt: expiresAtDate.toISOString(),
+      });
+      setSessions((prev) => [created, ...prev]);
+      setSelectedSessionId(created.id);
+      setBridgePassword('');
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setCreatingBridgeSession(false);
+    }
+  };
+
   const handleRun = async () => {
     if (!selectedSessionId) {
       setError('Select a session before running extraction.');
@@ -261,6 +309,66 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
           </p>
         </div>
       </div>
+
+      <details className="rounded-md border border-gray-200 bg-white p-3">
+        <summary className="cursor-pointer text-sm font-medium text-gray-800">
+          Create session via login bridge (recommended for mobile)
+        </summary>
+        <form className="mt-3 space-y-3" onSubmit={handleCreateBridgeSession}>
+          <p className="text-xs text-gray-600">
+            Enter SCE credentials once. Cloud logs in and stores only encrypted session state.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Label</label>
+            <input
+              value={bridgeLabel}
+              onChange={(event) => setBridgeLabel(event.target.value)}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="SCE Login Bridge Session"
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">SCE Username</label>
+              <input
+                type="text"
+                value={bridgeUsername}
+                onChange={(event) => setBridgeUsername(event.target.value)}
+                autoComplete="username"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="first.last@sce.tac"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">SCE Password</label>
+              <input
+                type="password"
+                value={bridgePassword}
+                onChange={(event) => setBridgePassword(event.target.value)}
+                autoComplete="current-password"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Password"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Expires At</label>
+            <input
+              type="datetime-local"
+              value={bridgeExpiresAt}
+              onChange={(event) => setBridgeExpiresAt(event.target.value)}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={creatingBridgeSession}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {creatingBridgeSession ? 'Logging in...' : 'Create Session via Login'}
+          </button>
+        </form>
+      </details>
 
       <details className="rounded-md border border-gray-200 bg-white p-3">
         <summary className="cursor-pointer text-sm font-medium text-gray-800">

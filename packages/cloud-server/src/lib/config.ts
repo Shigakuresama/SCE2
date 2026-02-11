@@ -28,6 +28,9 @@ export const config = {
   // SCE Website
   sceBaseUrl: process.env.SCE_BASE_URL || 'https://sce.dsmcentral.com',
   sceFormPath: process.env.SCE_FORM_PATH || '/onsite/customer-search',
+  sceLoginUrl:
+    process.env.SCE_LOGIN_URL ||
+    'https://sce-trade-ally-community.my.site.com/tradeally/s/login/?ec=302&inst=Vt&startURL=%2Ftradeally%2Fsite%2FSiteLogin.apexp',
 
   // Scraping
   scrapeDelayMs: parseInt(process.env.SCRAPE_DELAY_MS || '2000'),

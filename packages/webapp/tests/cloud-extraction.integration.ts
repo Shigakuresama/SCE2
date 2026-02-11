@@ -17,6 +17,11 @@ assert.match(
 );
 assert.match(
   apiSource,
+  /createExtractionSessionFromLogin/,
+  'API should expose createExtractionSessionFromLogin'
+);
+assert.match(
+  apiSource,
   /startCloudExtractionRun/,
   'API should expose startCloudExtractionRun'
 );
@@ -29,6 +34,11 @@ assert.match(
   queuePageSource,
   /CloudExtractionPanel/,
   'Queue page should render CloudExtractionPanel'
+);
+assert.match(
+  panelSource,
+  /Create Session via Login/,
+  'Cloud extraction panel should render login bridge session action'
 );
 assert.match(
   panelSource,

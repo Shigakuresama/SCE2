@@ -7,6 +7,31 @@ import type {
   SCEExtractionResult,
 } from './types.js';
 
+interface SCELoginCredentialsInput {
+  username: string;
+  password: string;
+}
+
+const LOGIN_USERNAME_SELECTORS = [
+  'input#login',
+  'input[placeholder*="first.last@sce.tac" i]',
+  'input[aria-label*="email" i]',
+  'input[type="text"]',
+];
+
+const LOGIN_PASSWORD_SELECTORS = [
+  'input#password',
+  'input[placeholder*="password" i]',
+  'input[type="password"]',
+];
+
+const LOGIN_SUBMIT_SELECTORS = [
+  'button:has-text("Login")',
+  'button:has-text("Sign in")',
+  'button[type="submit"]',
+  'input[type="submit"]',
+];
+
 const ADDRESS_FULL_SELECTORS = [
   'input[aria-label*="address" i]',
   'input[name*="address" i]',
@@ -86,6 +111,10 @@ function resolveCustomerSearchUrl(): string {
   return new URL(normalizedPath, config.sceBaseUrl).toString();
 }
 
+function resolveLoginUrl(): string {
+  return config.sceLoginUrl;
+}
+
 function normalizePath(pathname: string): string {
   return pathname.replace(/\/+$/, '').toLowerCase();
 }
@@ -152,7 +181,72 @@ async function hasLoginPrompt(page: Page): Promise<boolean> {
   return /sign in|log in/.test(bodyText) && /email|password/.test(bodyText);
 }
 
+async function assertOnCustomerSearchPage(page: Page, targetUrl: string): Promise<void> {
+  if (await hasLoginPrompt(page)) {
+    throw new Error(
+      `SCE login required for ${targetUrl}. Refresh session JSON from an authenticated dsmcentral login.`
+    );
+  }
+
+  const expectedPath = normalizePath(new URL(targetUrl).pathname);
+  const actualPath = normalizePath(new URL(page.url()).pathname);
+  if (actualPath !== expectedPath) {
+    throw new Error(
+      `Unexpected SCE page (${page.url()}). Expected ${targetUrl}. Login or account access may be missing.`
+    );
+  }
+}
+
 export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
+  async createStorageStateFromCredentials(
+    credentials: SCELoginCredentialsInput
+  ): Promise<string> {
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    try {
+      page.setDefaultTimeout(config.sceAutomationTimeoutMs);
+
+      const loginUrl = resolveLoginUrl();
+      await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
+
+      const username = credentials.username.trim();
+      const password = credentials.password;
+      if (!username) {
+        throw new Error('SCE username is required');
+      }
+      if (!password) {
+        throw new Error('SCE password is required');
+      }
+
+      const [filledUsername, filledPassword] = await Promise.all([
+        fillFirstMatchingSelector(page, LOGIN_USERNAME_SELECTORS, username),
+        fillFirstMatchingSelector(page, LOGIN_PASSWORD_SELECTORS, password),
+      ]);
+      if (!filledUsername || !filledPassword) {
+        throw new Error('Could not find SCE login fields on the login page.');
+      }
+
+      const clickedLogin = await clickFirstMatchingSelector(page, LOGIN_SUBMIT_SELECTORS);
+      if (!clickedLogin) {
+        throw new Error('Could not find SCE login submit button.');
+      }
+
+      const targetUrl = resolveCustomerSearchUrl();
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(1200);
+
+      await assertOnCustomerSearchPage(page, targetUrl);
+
+      const storageState = await context.storageState();
+      return JSON.stringify(storageState);
+    } finally {
+      await context.close();
+      await browser.close();
+    }
+  }
+
   async extractCustomerData(
     address: SCEAutomationAddressInput,
     options?: { storageStateJson?: string }
@@ -168,20 +262,7 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
       const targetUrl = resolveCustomerSearchUrl();
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(1200);
-
-      if (await hasLoginPrompt(page)) {
-        throw new Error(
-          `SCE login required for ${targetUrl}. Refresh session JSON from an authenticated dsmcentral login.`
-        );
-      }
-
-      const expectedPath = normalizePath(new URL(targetUrl).pathname);
-      const actualPath = normalizePath(new URL(page.url()).pathname);
-      if (actualPath !== expectedPath) {
-        throw new Error(
-          `Unexpected SCE page (${page.url()}). Expected ${targetUrl}. Login or account access may be missing.`
-        );
-      }
+      await assertOnCustomerSearchPage(page, targetUrl);
 
       const fullAddress = `${address.streetNumber} ${address.streetName}`.trim();
       const filledFullAddress = await fillFirstMatchingSelector(page, ADDRESS_FULL_SELECTORS, fullAddress);

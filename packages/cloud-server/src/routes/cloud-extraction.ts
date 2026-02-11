@@ -10,10 +10,21 @@ import { PlaywrightSCEAutomationClient } from '../lib/sce-automation/playwright-
 
 export const cloudExtractionRoutes = Router();
 
+type SessionCredentialsInput = {
+  username: string;
+  password: string;
+};
+
 let runLauncher = async (runId: number) => {
   await processExtractionRun(runId, {
     client: new PlaywrightSCEAutomationClient(),
   });
+};
+let sessionStateFactory = async (
+  credentials: SessionCredentialsInput
+): Promise<string> => {
+  const client = new PlaywrightSCEAutomationClient();
+  return client.createStorageStateFromCredentials(credentials);
 };
 let cloudExtractionEnabledOverride: boolean | null = null;
 
@@ -25,6 +36,15 @@ export function setCloudExtractionRunLauncherForTests(
   launcher: typeof runLauncher
 ) {
   runLauncher = launcher;
+}
+
+export function setCloudExtractionSessionStateFactoryForTests(
+  factory: ((credentials: SessionCredentialsInput) => Promise<string>) | null
+) {
+  sessionStateFactory = factory ?? (async (credentials: SessionCredentialsInput) => {
+    const client = new PlaywrightSCEAutomationClient();
+    return client.createStorageStateFromCredentials(credentials);
+  });
 }
 
 export function setCloudExtractionEnabledForTests(enabled: boolean | null) {
@@ -78,6 +98,35 @@ function parseSessionStateJson(value: unknown): string {
   return value;
 }
 
+function parseSceUsername(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new ValidationError('username is required and must be a string');
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new ValidationError('username cannot be empty');
+  }
+  if (trimmed.length > 320) {
+    throw new ValidationError('username must be 320 characters or less');
+  }
+  return trimmed;
+}
+
+function parseScePassword(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new ValidationError('password is required and must be a string');
+  }
+
+  if (!value.trim()) {
+    throw new ValidationError('password cannot be empty');
+  }
+  if (value.length > 500) {
+    throw new ValidationError('password must be 500 characters or less');
+  }
+  return value;
+}
+
 function parseExpiration(value: unknown): Date {
   if (typeof value !== 'string') {
     throw new ValidationError('expiresAt is required and must be an ISO date string');
@@ -122,6 +171,38 @@ cloudExtractionRoutes.post(
     const sessionStateJson = parseSessionStateJson(req.body?.sessionStateJson);
     const expiresAt = parseExpiration(req.body?.expiresAt);
     const encryptionKey = requireEncryptionKey();
+    const encryptedStateJson = encryptJson(sessionStateJson, encryptionKey);
+
+    const session = await prisma.extractionSession.create({
+      data: {
+        label,
+        encryptedStateJson,
+        expiresAt,
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        updatedAt: true,
+        label: true,
+        expiresAt: true,
+        isActive: true,
+      },
+    });
+
+    res.status(201).json({ success: true, data: session });
+  })
+);
+
+cloudExtractionRoutes.post(
+  '/sessions/login-bridge',
+  asyncHandler(async (req, res) => {
+    const label = parseSessionLabel(req.body?.label);
+    const username = parseSceUsername(req.body?.username);
+    const password = parseScePassword(req.body?.password);
+    const expiresAt = parseExpiration(req.body?.expiresAt);
+    const encryptionKey = requireEncryptionKey();
+
+    const sessionStateJson = await sessionStateFactory({ username, password });
     const encryptedStateJson = encryptJson(sessionStateJson, encryptionKey);
 
     const session = await prisma.extractionSession.create({

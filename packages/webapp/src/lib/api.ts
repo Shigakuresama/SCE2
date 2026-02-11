@@ -207,6 +207,18 @@ class SCE2API {
     });
   }
 
+  async createExtractionSessionFromLogin(payload: {
+    label: string;
+    username: string;
+    password: string;
+    expiresAt: string;
+  }): Promise<ExtractionSession> {
+    return this.request<ExtractionSession>('/cloud-extraction/sessions/login-bridge', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async listExtractionSessions(): Promise<ExtractionSession[]> {
     return this.request<ExtractionSession[]>('/cloud-extraction/sessions');
   }

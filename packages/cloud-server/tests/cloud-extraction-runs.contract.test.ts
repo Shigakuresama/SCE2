@@ -26,22 +26,26 @@ beforeEach(async () => {
   const {
     setCloudExtractionEnabledForTests,
     setCloudExtractionRunLauncherForTests,
+    setCloudExtractionSessionStateFactoryForTests,
   } = await import(
     '../src/routes/cloud-extraction.js'
   );
   setCloudExtractionEnabledForTests(true);
   setCloudExtractionRunLauncherForTests(async () => {});
+  setCloudExtractionSessionStateFactoryForTests(async () => '{"cookies":[],"origins":[]}');
 });
 
 afterEach(async () => {
   const {
     setCloudExtractionEnabledForTests,
     setCloudExtractionRunLauncherForTests,
+    setCloudExtractionSessionStateFactoryForTests,
   } = await import(
     '../src/routes/cloud-extraction.js'
   );
   setCloudExtractionEnabledForTests(null);
   setCloudExtractionRunLauncherForTests(async () => {});
+  setCloudExtractionSessionStateFactoryForTests(null);
 });
 
 afterAll(() => {
@@ -106,6 +110,43 @@ describe('Cloud Extraction Runs Contract', () => {
     expect(res.body.data.id).toEqual(expect.any(Number));
     expect(res.body.data.label).toBe('SCE Operator Session');
     expect(res.body.data.encryptedStateJson).toBeUndefined();
+  });
+
+  it('creates encrypted extraction session via login bridge', async () => {
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const res = await request(app)
+      .post('/api/cloud-extraction/sessions/login-bridge')
+      .send({
+        label: 'SCE Login Bridge Session',
+        username: 'first.last@sce.tac',
+        password: 'super-secret-password',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.id).toEqual(expect.any(Number));
+    expect(res.body.data.label).toBe('SCE Login Bridge Session');
+  });
+
+  it('rejects login bridge requests with missing credentials', async () => {
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const res = await request(app)
+      .post('/api/cloud-extraction/sessions/login-bridge')
+      .send({
+        label: 'Invalid Login Bridge Session',
+        username: '',
+        password: '',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toContain('username');
   });
 
   it('rejects expired session payloads', async () => {

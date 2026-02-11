@@ -61,18 +61,22 @@ Use this flow for server-side extraction without the extension:
    - `SCE_SESSION_ENCRYPTION_KEY` is set (32+ byte secret)
    - `SCE_FORM_PATH=/onsite/customer-search`
 2. Open webapp Queue page and use the **Cloud Extraction** panel.
-3. Create an encrypted session (label + expiry + storage-state JSON).
+3. Create an encrypted session (recommended: **Login Bridge**):
+   - In webapp, use **Create session via login bridge**.
+   - Enter SCE username/password + expiry; cloud performs login and stores encrypted session state.
+   - Credentials are only used for this request and are not persisted in `ExtractionSession`.
+4. Fallback (manual JSON):
    - Start login from:
      `https://sce-trade-ally-community.my.site.com/tradeally/s/login/?ec=302&inst=Vt&startURL=%2Ftradeally%2Fsite%2FSiteLogin.apexp`
    - After login succeeds, open:
      `https://sce.dsmcentral.com/onsite/customer-search`
-   - Capture storage-state JSON only after you can see the authenticated SCE flow (not `sce.com` marketing pages).
-   - If runs fail with `Unexpected SCE page .../onsite/`, refresh login and regenerate the session JSON.
-4. Select the session, verify property IDs, then click **Run Cloud Extraction**.
-5. Monitor run status and counters:
+   - Capture storage-state JSON only after you can see the authenticated SCE flow.
+   - If runs fail with `Unexpected SCE page .../onsite/`, refresh login and regenerate session JSON.
+5. Select the session, verify property IDs, then click **Run Cloud Extraction**.
+6. Monitor run status and counters:
    - `QUEUED` / `RUNNING` / `COMPLETED` / `COMPLETED_WITH_ERRORS` / `FAILED`
-6. Confirm successful properties moved to `READY_FOR_FIELD`.
-7. For failed items, keep them in `PENDING_SCRAPE` and retry in another run after fixing selector/session issues.
+7. Confirm successful properties moved to `READY_FOR_FIELD`.
+8. For failed items, keep them in `PENDING_SCRAPE` and retry in another run after fixing selector/session issues.
 
 ### Cloud Extraction Rollback (Extension Fallback)
 

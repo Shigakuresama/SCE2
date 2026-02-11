@@ -67,6 +67,7 @@ Render will automatically deploy all services:
    - `BASE_URL` = `https://sce2-cloud-server.onrender.com`
    - `SCE_BASE_URL` = `https://sce.dsmcentral.com`
    - `SCE_FORM_PATH` = `/onsite/customer-search`
+   - `SCE_LOGIN_URL` = `https://sce-trade-ally-community.my.site.com/tradeally/s/login/?ec=302&inst=Vt&startURL=%2Ftradeally%2Fsite%2FSiteLogin.apexp`
    - `SCE_AUTOMATION_ENABLED` = `false` (default rollout-safe value)
    - `SCE_SESSION_ENCRYPTION_KEY` = `<32+ byte secret>`
    - `SCE_AUTOMATION_TIMEOUT_MS` = `45000`
