@@ -17,6 +17,31 @@ export interface SearchResult {
   name: string;
 }
 
+const STREET_TOKEN_STOP_WORDS = new Set([
+  'st',
+  'street',
+  'ave',
+  'avenue',
+  'blvd',
+  'boulevard',
+  'ln',
+  'lane',
+  'dr',
+  'drive',
+  'way',
+  'road',
+  'rd',
+  'ct',
+  'court',
+  'pl',
+  'place',
+  'cir',
+  'circle',
+  'ca',
+  'california',
+  'usa',
+]);
+
 function extractFiveDigitZip(value: string | undefined): string | null {
   if (!value) {
     return null;
@@ -28,6 +53,54 @@ function extractFiveDigitZip(value: string | undefined): string | null {
     return null;
   }
   return matches[matches.length - 1]?.[1] ?? null;
+}
+
+function extractRequestedStreetTokens(
+  query: string,
+  houseNumber: string | null,
+  zipCode: string | null
+): string[] {
+  let working = query;
+
+  if (houseNumber) {
+    working = working.replace(new RegExp(`^\\s*${houseNumber}\\b`), ' ');
+  }
+
+  if (zipCode) {
+    working = working.replace(
+      new RegExp(`\\b${zipCode}(?:-\\d{4})?\\b`, 'g'),
+      ' '
+    );
+  }
+
+  const tokens = working
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => token.length >= 3)
+    .filter((token) => !STREET_TOKEN_STOP_WORDS.has(token));
+
+  return [...new Set(tokens)];
+}
+
+function candidateMatchesRequestedStreet(
+  candidate: {
+    address?: { [key: string]: string };
+    display_name?: string;
+  },
+  requestedStreetTokens: string[]
+): boolean {
+  if (requestedStreetTokens.length === 0) {
+    return true;
+  }
+
+  const road = candidate.address?.road || '';
+  const displayName = candidate.display_name || '';
+  const searchable = `${road} ${displayName}`.toLowerCase();
+
+  return requestedStreetTokens.every((token) => searchable.includes(token));
 }
 
 /**
@@ -51,6 +124,11 @@ export async function searchAddress(query: string): Promise<SearchResult | null>
 
   const requestedZip = extractFiveDigitZip(trimmedQuery);
   const requestedHouseNumber = trimmedQuery.match(/^\s*(\d{1,6})\b/)?.[1] ?? null;
+  const requestedStreetTokens = extractRequestedStreetTokens(
+    trimmedQuery,
+    requestedHouseNumber,
+    requestedZip
+  );
 
   // Check if query contains a ZIP code (5 digits) - if so, we're more specific
   const hasZipCode = requestedZip !== null;
@@ -123,6 +201,10 @@ export async function searchAddress(query: string): Promise<SearchResult | null>
           if (candidateHouseNumber !== requestedHouseNumber) {
             continue;
           }
+        }
+
+        if (!candidateMatchesRequestedStreet(candidate, requestedStreetTokens)) {
+          continue;
         }
 
         return {

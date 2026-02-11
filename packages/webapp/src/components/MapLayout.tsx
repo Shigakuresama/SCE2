@@ -630,7 +630,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
 
                     if (!normalized) {
                       setFetchError(
-                        'Address not found or incomplete. Please include house number and ZIP (example: 22003 Seine Ave 90716).'
+                        'Address not found or incomplete. Include house number + street + ZIP (example: 22003 Seine Ave 90716). If needed, add city (Hawaiian Gardens).'
                       );
                       return;
                     }

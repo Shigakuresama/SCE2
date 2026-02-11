@@ -439,6 +439,11 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
             Processed {currentRun.processedCount}/{currentRun.totalCount} | Success:{' '}
             {currentRun.successCount} | Failed: {currentRun.failureCount}
           </p>
+          {currentRun.errorSummary && (
+            <p className="mt-1 text-red-700">
+              Reason: {currentRun.errorSummary}
+            </p>
+          )}
         </div>
       )}
 

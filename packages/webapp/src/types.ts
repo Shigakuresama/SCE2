@@ -184,6 +184,7 @@ export interface ExtractionRun {
   sessionId: number;
   startedAt?: string | null;
   finishedAt?: string | null;
+  errorSummary?: string | null;
   items?: ExtractionRunItem[];
 }
 

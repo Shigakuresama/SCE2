@@ -100,5 +100,48 @@ describe('Queue Addresses Contract', () => {
       '700 Requeue St, Santa Ana, CA 92701'
     );
   });
-});
 
+  it('does not 500 when an existing address only differs by capitalization', async () => {
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const original = {
+      addresses: [
+        {
+          addressFull: '23003 Seine Ave, Hawaiian Gardens, CA 90716',
+          streetNumber: '23003',
+          streetName: 'Seine Ave',
+          zipCode: '90716',
+          city: 'Hawaiian Gardens',
+          state: 'CA',
+        },
+      ],
+    };
+
+    const mixedCase = {
+      addresses: [
+        {
+          addressFull: '23003 SEINE AVE, HAWAIIAN GARDENS, CA 90716',
+          streetNumber: '23003',
+          streetName: 'SEINE AVE',
+          zipCode: '90716',
+          city: 'HAWAIIAN GARDENS',
+          state: 'CA',
+        },
+      ],
+    };
+
+    const firstQueue = await request(app).post('/api/queue/addresses').send(original);
+    expect(firstQueue.status).toBe(201);
+    expect(firstQueue.body.count).toBe(1);
+
+    const secondQueue = await request(app).post('/api/queue/addresses').send(mixedCase);
+    expect(secondQueue.status).toBe(201);
+    expect(secondQueue.body.success).toBe(true);
+    expect(secondQueue.body.count).toBe(0);
+    expect(secondQueue.body.skippedCount).toBe(1);
+    expect(secondQueue.body.skippedAddresses).toContain(
+      '23003 SEINE AVE, HAWAIIAN GARDENS, CA 90716'
+    );
+  });
+});

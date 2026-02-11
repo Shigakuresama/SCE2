@@ -1,10 +1,18 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/database.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { logger } from '../lib/logger.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 
 export const queueRoutes = Router();
+
+function isUniqueConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  return 'code' in error && (error as { code?: string }).code === 'P2002';
+}
 
 // GET /api/queue/scrape - Get next property to scrape
 queueRoutes.get('/scrape', asyncHandler(async (req, res) => {
@@ -360,50 +368,54 @@ queueRoutes.post(
     }
     const dedupedAddresses = Array.from(dedupedByAddress.values());
 
-    // Use transaction for atomicity and duplicate-safe insertion
+    // Use transaction for duplicate-safe insertion
     const result = await prisma.$transaction(async (tx) => {
-      // Check for already-existing addresses in DB
-      const existing = await tx.property.findMany({
-        where: {
-          addressFull: { in: dedupedAddresses.map((a) => a.addressFull) },
-        },
-        select: { addressFull: true },
-      });
-
-      const existingSet = new Set(existing.map((p) => p.addressFull.toLowerCase()));
-      const toCreate = dedupedAddresses.filter(
-        (addr) => !existingSet.has(addr.addressFull.toLowerCase())
+      const created: Awaited<ReturnType<typeof tx.property.create>>[] = [];
+      const skippedAddresses: string[] = [];
+      const addressKeys = dedupedAddresses.map((addr) => addr.addressFull.toLowerCase());
+      const existingRows = addressKeys.length
+        ? await tx.$queryRaw<Array<{ addressFull: string }>>(Prisma.sql`
+            SELECT addressFull
+            FROM Property
+            WHERE lower(addressFull) IN (${Prisma.join(addressKeys)})
+          `)
+        : [];
+      const existingAddressKeys = new Set(
+        existingRows.map((row) => row.addressFull.toLowerCase())
       );
 
-      if (toCreate.length > 0) {
-        // Create only addresses not yet present.
-        await tx.property.createMany({
-          data: toCreate.map((addr) => ({
-            addressFull: addr.addressFull,
-            streetNumber: addr.streetNumber,
-            streetName: addr.streetName,
-            zipCode: addr.zipCode,
-            city: addr.city,
-            state: addr.state,
-            latitude: addr.latitude,
-            longitude: addr.longitude,
-            status: 'PENDING_SCRAPE',
-          })),
-        });
+      for (const addr of dedupedAddresses) {
+        const addrKey = addr.addressFull.toLowerCase();
+        if (existingAddressKeys.has(addrKey)) {
+          skippedAddresses.push(addr.addressFull);
+          continue;
+        }
+
+        try {
+          const property = await tx.property.create({
+            data: {
+              addressFull: addr.addressFull,
+              streetNumber: addr.streetNumber,
+              streetName: addr.streetName,
+              zipCode: addr.zipCode,
+              city: addr.city,
+              state: addr.state,
+              latitude: addr.latitude,
+              longitude: addr.longitude,
+              status: 'PENDING_SCRAPE',
+            },
+          });
+          created.push(property);
+          existingAddressKeys.add(addrKey);
+        } catch (error) {
+          if (isUniqueConstraintError(error)) {
+            skippedAddresses.push(addr.addressFull);
+            existingAddressKeys.add(addrKey);
+            continue;
+          }
+          throw error;
+        }
       }
-
-      const created = toCreate.length === 0
-        ? []
-        : await tx.property.findMany({
-        where: {
-            addressFull: { in: toCreate.map((a) => a.addressFull) },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const skippedAddresses = dedupedAddresses
-        .filter((addr) => existingSet.has(addr.addressFull.toLowerCase()))
-        .map((addr) => addr.addressFull);
 
       return { created, skippedAddresses };
     });
