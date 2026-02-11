@@ -27,6 +27,7 @@ const LOGIN_PASSWORD_SELECTORS = [
 
 const LOGIN_SUBMIT_SELECTORS = [
   'button:has-text("Login")',
+  'button:has-text("Log In")',
   'button:has-text("Sign in")',
   'button[type="submit"]',
   'input[type="submit"]',
@@ -151,6 +152,20 @@ function normalizePath(pathname: string): string {
   return pathname.replace(/\/+$/, '').toLowerCase();
 }
 
+function isOnOnsitePath(pathname: string): boolean {
+  const normalized = normalizePath(pathname);
+  return normalized === '/onsite' || normalized.startsWith('/onsite/');
+}
+
+function isRetriableNavigationError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes('err_aborted') || message.includes('navigation interrupted');
+}
+
 async function fillFirstMatchingSelector(
   page: Page,
   selectors: string[],
@@ -213,7 +228,49 @@ async function hasLoginPrompt(page: Page): Promise<boolean> {
   return /sign in|log in/.test(bodyText) && /email|password/.test(bodyText);
 }
 
-async function assertOnCustomerSearchPage(page: Page, targetUrl: string): Promise<void> {
+async function navigateToCustomerSearchAfterLogin(page: Page, targetUrl: string): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await page.goto(targetUrl, {
+        waitUntil: attempt === 1 ? 'domcontentloaded' : 'commit',
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isRetriableNavigationError(error)) {
+        throw error;
+      }
+      await page.waitForTimeout(750 * attempt);
+    }
+  }
+
+  try {
+    const currentUrl = new URL(page.url());
+    const expectedUrl = new URL(targetUrl);
+    if (
+      currentUrl.hostname === expectedUrl.hostname &&
+      currentUrl.protocol === expectedUrl.protocol &&
+      isOnOnsitePath(currentUrl.pathname)
+    ) {
+      return;
+    }
+  } catch {
+    // If URL parsing fails, throw the captured navigation error below.
+  }
+
+  throw (
+    lastError ??
+    new Error(`Unable to navigate to ${targetUrl} after SCE login.`)
+  );
+}
+
+async function assertOnCustomerSearchPage(
+  page: Page,
+  targetUrl: string,
+  options?: { allowOnsiteRoot?: boolean }
+): Promise<void> {
   if (await hasLoginPrompt(page)) {
     throw new Error(
       `SCE login required for ${targetUrl}. Refresh session JSON from an authenticated dsmcentral login.`
@@ -223,6 +280,10 @@ async function assertOnCustomerSearchPage(page: Page, targetUrl: string): Promis
   const expectedPath = normalizePath(new URL(targetUrl).pathname);
   const actualPath = normalizePath(new URL(page.url()).pathname);
   if (actualPath !== expectedPath) {
+    if (options?.allowOnsiteRoot && isOnOnsitePath(actualPath)) {
+      return;
+    }
+
     throw new Error(
       `Unexpected SCE page (${page.url()}). Expected ${targetUrl}. Login or account access may be missing.`
     );
@@ -271,10 +332,11 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
       ]).catch(() => undefined);
 
       const targetUrl = resolveCustomerSearchUrl();
-      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+      await navigateToCustomerSearchAfterLogin(page, targetUrl);
       await page.waitForTimeout(1200);
-
-      await assertOnCustomerSearchPage(page, targetUrl);
+      await assertOnCustomerSearchPage(page, targetUrl, {
+        allowOnsiteRoot: true,
+      });
 
       const storageState = await context.storageState();
       return JSON.stringify(storageState);
