@@ -3,6 +3,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/database.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 
 export const propertyUpdateRoutes = Router();
 
@@ -105,4 +106,52 @@ propertyUpdateRoutes.post('/batch-update', asyncHandler(async (req, res) => {
       }))
     }
   });
+}));
+
+/**
+ * POST /api/properties/:id/complete-visit
+ * Marks a property as VISITED after required field documents are uploaded.
+ */
+propertyUpdateRoutes.post('/:id/complete-visit', asyncHandler(async (req, res) => {
+  const rawPropertyId = req.params.id;
+  const propertyId = Number(rawPropertyId);
+
+  if (!/^\d+$/.test(rawPropertyId) || !Number.isInteger(propertyId) || propertyId <= 0) {
+    throw new ValidationError('id must be a positive integer');
+  }
+
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+  });
+
+  if (!property) {
+    throw new NotFoundError('Property', rawPropertyId);
+  }
+
+  if (property.status !== 'READY_FOR_FIELD') {
+    throw new ConflictError(
+      `Visit completion only allowed from READY_FOR_FIELD. Current status: ${property.status}`
+    );
+  }
+
+  const requiredDocTypes = ['BILL', 'SIGNATURE'];
+  const documents = await prisma.document.findMany({
+    where: { propertyId },
+    select: { docType: true },
+  });
+  const availableTypes = new Set(documents.map((document) => document.docType));
+  const missingDocTypes = requiredDocTypes.filter((docType) => !availableTypes.has(docType));
+
+  if (missingDocTypes.length > 0) {
+    throw new ConflictError(
+      `Visit completion requires BILL and SIGNATURE documents. Missing: ${missingDocTypes.join(', ')}`
+    );
+  }
+
+  const updatedProperty = await prisma.property.update({
+    where: { id: propertyId },
+    data: { status: 'VISITED' },
+  });
+
+  res.json({ success: true, data: updatedProperty });
 }));
