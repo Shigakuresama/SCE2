@@ -322,8 +322,19 @@ queueRoutes.post(
       longitude?: number | null;
     }
 
+    const normalizedInput = (addresses as AddressInput[]).map((addr) => ({
+      addressFull: String(addr.addressFull ?? '').trim(),
+      streetNumber: String(addr.streetNumber ?? '').trim(),
+      streetName: String(addr.streetName ?? '').trim(),
+      zipCode: String(addr.zipCode ?? '').trim(),
+      city: addr.city ? String(addr.city).trim() : null,
+      state: addr.state ? String(addr.state).trim() : null,
+      latitude: addr.latitude ?? null,
+      longitude: addr.longitude ?? null,
+    }));
+
     // Validate each address has required fields
-    for (const addr of addresses as AddressInput[]) {
+    for (const addr of normalizedInput) {
       if (!addr.addressFull || !addr.streetNumber || !addr.streetName || !addr.zipCode) {
         throw new ValidationError(
           'Each address must have addressFull, streetNumber, streetName, zipCode'
@@ -339,49 +350,70 @@ queueRoutes.post(
       }
     }
 
-    // Use transaction for atomicity and duplicate detection
+    // Dedupe incoming payload by normalized addressFull to prevent unique collisions.
+    const dedupedByAddress = new Map<string, typeof normalizedInput[number]>();
+    for (const addr of normalizedInput) {
+      const key = addr.addressFull.toLowerCase();
+      if (!dedupedByAddress.has(key)) {
+        dedupedByAddress.set(key, addr);
+      }
+    }
+    const dedupedAddresses = Array.from(dedupedByAddress.values());
+
+    // Use transaction for atomicity and duplicate-safe insertion
     const result = await prisma.$transaction(async (tx) => {
-      // Check for duplicates
+      // Check for already-existing addresses in DB
       const existing = await tx.property.findMany({
         where: {
-          addressFull: { in: (addresses as AddressInput[]).map((a) => a.addressFull) },
+          addressFull: { in: dedupedAddresses.map((a) => a.addressFull) },
         },
         select: { addressFull: true },
       });
 
-      if (existing.length > 0) {
-        const duplicates = existing.map((p) => p.addressFull).join(', ');
-        throw new ValidationError(`Addresses already exist: ${duplicates}`);
+      const existingSet = new Set(existing.map((p) => p.addressFull.toLowerCase()));
+      const toCreate = dedupedAddresses.filter(
+        (addr) => !existingSet.has(addr.addressFull.toLowerCase())
+      );
+
+      if (toCreate.length > 0) {
+        // Create only addresses not yet present.
+        await tx.property.createMany({
+          data: toCreate.map((addr) => ({
+            addressFull: addr.addressFull,
+            streetNumber: addr.streetNumber,
+            streetName: addr.streetName,
+            zipCode: addr.zipCode,
+            city: addr.city,
+            state: addr.state,
+            latitude: addr.latitude,
+            longitude: addr.longitude,
+            status: 'PENDING_SCRAPE',
+          })),
+        });
       }
 
-      // Create properties
-      await tx.property.createMany({
-        data: (addresses as AddressInput[]).map((addr) => ({
-          addressFull: addr.addressFull,
-          streetNumber: addr.streetNumber,
-          streetName: addr.streetName,
-          zipCode: addr.zipCode,
-          city: addr.city,
-          state: addr.state,
-          latitude: addr.latitude,
-          longitude: addr.longitude,
-          status: 'PENDING_SCRAPE',
-        })),
-      });
-
-      // Fetch created properties within same transaction
-      return tx.property.findMany({
+      const created = toCreate.length === 0
+        ? []
+        : await tx.property.findMany({
         where: {
-          addressFull: { in: (addresses as AddressInput[]).map((a) => a.addressFull) },
+            addressFull: { in: toCreate.map((a) => a.addressFull) },
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      const skippedAddresses = dedupedAddresses
+        .filter((addr) => existingSet.has(addr.addressFull.toLowerCase()))
+        .map((addr) => addr.addressFull);
+
+      return { created, skippedAddresses };
     });
 
     res.status(201).json({
       success: true,
-      data: result,
-      count: result.length,
+      data: result.created,
+      count: result.created.length,
+      skippedCount: result.skippedAddresses.length,
+      skippedAddresses: result.skippedAddresses,
     });
   })
 );

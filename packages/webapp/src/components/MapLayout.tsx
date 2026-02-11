@@ -4,11 +4,12 @@ import L from 'leaflet';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
-import { Property, AddressInput, PropertyStatus } from '../types';
+import { Property, AddressInput } from '../types';
 import { fetchAddressesInBounds, Bounds } from '../lib/overpass';
 import { isApartment } from '../lib/apartment-detector';
 import { AddressSelectionManager } from './AddressSelectionManager';
 import { RouteProcessor } from './RouteProcessor';
+import { extractStreetName, extractStreetNumber, extractZipCode, searchAddress } from '../lib/geocoding';
 
 // Fix for default marker icons in react-leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -132,10 +133,48 @@ async function reverseGeocode(lat: number, lng: number): Promise<AddressInput | 
   }
 }
 
+function normalizeZipCode(rawZip: string | undefined): string | null {
+  if (!rawZip) {
+    return null;
+  }
+
+  const match = rawZip.match(/\d{5}(?:-\d{4})?/);
+  return match ? match[0] : null;
+}
+
+function normalizeSearchResultToAddressInput(result: Awaited<ReturnType<typeof searchAddress>>): AddressInput | null {
+  if (!result) {
+    return null;
+  }
+
+  const streetNumber = (result.address.house_number || extractStreetNumber(result.display_name)).trim();
+  const streetName = (result.address.road || extractStreetName(result.display_name)).trim();
+  const zipCode = normalizeZipCode(result.address.postcode || extractZipCode(result));
+  const city = result.address.city || result.address.town || result.address.village || result.address.county || null;
+  const state = result.address.state || 'CA';
+
+  if (!streetNumber || !streetName || !zipCode) {
+    return null;
+  }
+
+  const addressFull = `${streetNumber} ${streetName}, ${city || 'Unknown'}, ${state} ${zipCode}`.slice(0, 255);
+
+  return {
+    addressFull,
+    streetNumber,
+    streetName,
+    city,
+    state,
+    zipCode,
+    latitude: result.lat,
+    longitude: result.lon,
+  };
+}
+
 interface MapLayoutProps {
   selectedProperties: Property[];
   setSelectedProperties: React.Dispatch<React.SetStateAction<Property[]>>;
-  onAddressesSelected: (addresses: AddressInput[]) => void;
+  onAddressesSelected: (addresses: AddressInput[]) => Promise<void> | void;
   existingProperties?: Property[];
   properties?: Property[];
   onPropertiesUpdated?: () => void;
@@ -369,11 +408,20 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
   properties: propList = [],
   onPropertiesUpdated,
 }) => {
-  // Unified property state: use existing properties from API, or propList, or local state
   const [localProperties, setLocalProperties] = useState<Property[]>([]);
-
   // The source of truth for properties shown on map and used in selection
-  const properties = existingProperties.length > 0 ? existingProperties : (propList.length > 0 ? propList : localProperties);
+  const properties = React.useMemo(() => {
+    const source = existingProperties.length > 0 ? existingProperties : propList;
+    if (localProperties.length === 0) {
+      return source;
+    }
+
+    const existingKeys = new Set(source.map((p) => p.addressFull.toLowerCase().trim()));
+    const localOnly = localProperties.filter(
+      (p) => !existingKeys.has(p.addressFull.toLowerCase().trim())
+    );
+    return [...source, ...localOnly];
+  }, [existingProperties, propList, localProperties]);
 
   const [mapCenter] = useState<[number, number]>([33.8361, -117.8897]);
   const [loading, setLoading] = useState(false);
@@ -387,39 +435,8 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
 
   // Handler for when addresses are selected via map drawing or search
   // Must be defined before handleFetchAddresses since it depends on this
-  const handleAddressesSelectedInternal = useCallback((addresses: AddressInput[]) => {
-    // Convert AddressInput to local property format (string IDs for local, number for API)
-    const newProps = addresses.map((addr, index) => {
-      const now = new Date();
-      return {
-        id: `local_${now.getTime()}_${index}` as unknown as number, // Cast string to number for local use
-        createdAt: now,
-        updatedAt: now,
-        addressFull: addr.addressFull,
-        streetNumber: addr.streetNumber || null,
-        streetName: addr.streetName || null,
-        zipCode: addr.zipCode || null,
-        city: addr.city || null,
-        state: addr.state || null,
-        latitude: addr.latitude || null,
-        longitude: addr.longitude || null,
-        customerName: null,
-        customerPhone: null,
-        customerEmail: null,
-        customerAge: null,
-        fieldNotes: null,
-        sceCaseId: null,
-        status: PropertyStatus.PENDING_SCRAPE,
-        routeId: null,
-      } as Property; // Cast to Property since local properties have string IDs internally
-    });
-
-    setLocalProperties(prev => [...prev, ...newProps]);
-
-    // Also call the original callback if provided
-    if (onAddressesSelected) {
-      onAddressesSelected(addresses);
-    }
+  const handleAddressesSelectedInternal = useCallback(async (addresses: AddressInput[]) => {
+    await Promise.resolve(onAddressesSelected(addresses));
   }, [onAddressesSelected]);
 
   // Handler to refresh properties from API (called after route processing)
@@ -427,7 +444,6 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
     if (onPropertiesUpdated) {
       onPropertiesUpdated();
     }
-    // Also clear local properties when API refresh happens
     setLocalProperties([]);
   }, [onPropertiesUpdated]);
 
@@ -441,7 +457,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
         setHasSelectedArea(true);
 
         if (addresses.length > 0) {
-          handleAddressesSelectedInternal(addresses);
+          await handleAddressesSelectedInternal(addresses);
           console.log(`[MapLayout] Found ${addresses.length} addresses`);
         } else {
           console.log('[MapLayout] No addresses found in selected area');
@@ -462,7 +478,7 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
       handleFetchAddresses(bounds);
       setDrawMode(null); // Exit draw mode after completion
     },
-    [handleFetchAddresses, handleAddressesSelectedInternal]
+    [handleFetchAddresses]
   );
 
   // Handle map click for click-to-pin functionality
@@ -501,12 +517,20 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
 
     // Store marker ID on the marker object for lookup
     (marker as any).markerId = markerId;
+    if (mapInstance) {
+      marker.addTo(mapInstance);
+    }
 
-    setClickMarkers((prev) => [...prev, marker]);
-
-    // Queue the address using the internal handler
-    handleAddressesSelectedInternal([address]);
-    console.log('[MapLayout] Address queued successfully');
+    try {
+      // Queue the address first, then keep the marker
+      await handleAddressesSelectedInternal([address]);
+      setClickMarkers((prev) => [...prev, marker]);
+      setFetchError(null);
+      console.log('[MapLayout] Address queued successfully');
+    } catch (error) {
+      marker.remove();
+      setFetchError(error instanceof Error ? error.message : 'Failed to queue clicked address');
+    }
   };
 
   const handleEnableRectangle = () => {
@@ -601,72 +625,63 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
                   btn.disabled = true;
 
                   try {
-                    // Use Nominatim to search for the address
-                    const response = await fetch(
-                      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address + ', Orange County, CA')}`,
-                      {
-                        headers: { 'User-Agent': 'SCE2-Map-Search' },
-                      }
-                    );
+                    const result = await searchAddress(address);
+                    const normalized = normalizeSearchResultToAddressInput(result);
 
-                    const data = await response.json();
-
-                    if (data && data.length > 0) {
-                      const result = data[0];
-                      const lat = parseFloat(result.lat);
-                      const lon = parseFloat(result.lon);
-
-                      console.log('[MapLayout] Found address:', result.display_name, 'at', lat, lon);
-
-                      // Move map to location and add pin
-                      if (mapInstance) {
-                        mapInstance.setView([lat, lon], 17);
-
-                        // Create marker
-                        const markerId = `marker-${Date.now()}`;
-                        const marker = L.marker([lat, lon], { icon: pinIcon });
-                        marker.bindPopup(`
-                          <div style="min-width: 200px;">
-                            <strong>📍 ${result.display_name}</strong><br/>
-                            <button
-                              data-marker-id="${markerId}"
-                              style="margin-top: 8px; padding: 4px 12px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;"
-                              onclick="window.sce2DeleteMarker && window.sce2DeleteMarker('${markerId}')"
-                            >
-                              🗑️ Delete Pin
-                            </button>
-                          </div>
-                        `).addTo(mapInstance);
-
-                        // Store marker ID on the marker object for lookup
-                        (marker as any).markerId = markerId;
-
-                        setClickMarkers((prev) => [...prev, marker]);
-
-                        // Queue the address
-                        const addressData = {
-                          addressFull: result.display_name,
-                          streetNumber: '0',
-                          streetName: result.display_name.split(',')[0]?.trim() || 'Unknown',
-                          city: result.address?.city || result.address?.town || result.address?.village || null,
-                          state: result.address?.state || 'CA',
-                          zipCode: result.address?.postcode || '00000',
-                          latitude: lat,
-                          longitude: lon,
-                        };
-
-                        handleAddressesSelectedInternal([addressData]);
-                        console.log('[MapLayout] Address queued successfully');
-
-                        // Show success message
-                        input.value = '';
-                      }
-                    } else {
-                      alert('Address not found. Try:\n- Include the full address\n- Add "Orange County, CA" or the city name\n- Check the spelling');
+                    if (!normalized) {
+                      setFetchError(
+                        'Address not found or incomplete. Please include house number and ZIP (example: 22003 Seine Ave 90716).'
+                      );
+                      return;
                     }
+
+                    const lat = normalized.latitude ?? null;
+                    const lon = normalized.longitude ?? null;
+                    if (lat === null || lon === null) {
+                      setFetchError('Address found but map coordinates are missing.');
+                      return;
+                    }
+
+                    console.log('[MapLayout] Found address:', normalized.addressFull, 'at', lat, lon);
+
+                    await handleAddressesSelectedInternal([normalized]);
+                    setFetchError(null);
+
+                    // Move map to location and add pin
+                    if (mapInstance) {
+                      mapInstance.setView([lat, lon], 17);
+
+                      // Create marker
+                      const markerId = `marker-${Date.now()}`;
+                      const marker = L.marker([lat, lon], { icon: pinIcon });
+                      marker.bindPopup(`
+                        <div style="min-width: 200px;">
+                          <strong>📍 ${normalized.streetNumber} ${normalized.streetName}</strong><br/>
+                          ${normalized.city || 'Unknown'}, ${normalized.state || 'CA'} ${normalized.zipCode}<br/>
+                          <button
+                            data-marker-id="${markerId}"
+                            style="margin-top: 8px; padding: 4px 12px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;"
+                            onclick="window.sce2DeleteMarker && window.sce2DeleteMarker('${markerId}')"
+                          >
+                            🗑️ Delete Pin
+                          </button>
+                        </div>
+                      `).addTo(mapInstance);
+
+                      // Store marker ID on the marker object for lookup
+                      (marker as any).markerId = markerId;
+                      setClickMarkers((prev) => [...prev, marker]);
+                    }
+
+                    console.log('[MapLayout] Address queued successfully');
+
+                    // Show success message
+                    input.value = '';
                   } catch (error) {
                     console.error('[MapLayout] Search failed:', error);
-                    alert('Failed to search for address. Please try again.');
+                    setFetchError(
+                      error instanceof Error ? error.message : 'Failed to search and queue address.'
+                    );
                   } finally {
                     btn.textContent = '🔍';
                     btn.disabled = false;

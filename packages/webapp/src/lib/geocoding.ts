@@ -17,6 +17,14 @@ export interface SearchResult {
   name: string;
 }
 
+function extractFiveDigitZip(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const match = value.match(/\b(\d{5})(?:-\d{4})?\b/);
+  return match ? match[1] : null;
+}
+
 /**
  * Search for an address using multiple strategies with fallbacks.
  *
@@ -36,34 +44,45 @@ export async function searchAddress(query: string): Promise<SearchResult | null>
     return null;
   }
 
+  const requestedZip = extractFiveDigitZip(trimmedQuery);
+  const requestedHouseNumber = trimmedQuery.match(/^\s*(\d{1,6})\b/)?.[1] ?? null;
+
   // Check if query contains a ZIP code (5 digits) - if so, we're more specific
-  const hasZipCode = /\b\d{5}\b/.test(trimmedQuery);
+  const hasZipCode = requestedZip !== null;
   const hasStreetType = /\s(st|street|ave|avenue|blvd|boulevard|ln|lane|dr|drive|way|road|ct|court|pl|place|cir|circle)\b/i.test(trimmedQuery);
+  const inferredStreetTypeQuery = hasZipCode && !hasStreetType && requestedZip
+    ? trimmedQuery.replace(
+      new RegExp(`\\b${requestedZip}\\b`),
+      `Ave ${requestedZip}`
+    )
+    : null;
 
   // Multiple search strategies with fallbacks
   const strategies: string[] = [
-    // Strategy 0: Original query with country filter (most specific first)
+    // Strategy 0: Add likely street type if ZIP is present
+    inferredStreetTypeQuery ? `${inferredStreetTypeQuery}, CA, USA` : null,
+
+    // Strategy 1: Original query with explicit CA + country filter
+    `${trimmedQuery}, CA, USA`,
+
+    // Strategy 2: Original query with country filter
     `${trimmedQuery}, USA`,
 
-    // Strategy 1: Original query (exact match)
+    // Strategy 3: Original query (exact match)
     trimmedQuery,
 
-    // Strategy 2: If it has a ZIP but no street type, it's probably "number street zip"
-    // Try adding "Ave" as default street type
-    hasZipCode && !hasStreetType ? `${trimmedQuery.replace(/(\d{5})$/, 'Ave $1')}, USA` : null,
-
-    // Strategy 3: Add CA, USA if no state detected
+    // Strategy 4: Add CA, USA if no state detected
     !trimmedQuery.includes(', CA') && !trimmedQuery.includes(', California')
       ? `${trimmedQuery}, CA, USA`
       : null,
 
-    // Strategy 4: Try with "Ave" instead of "Ln" + ", CA, USA"
+    // Strategy 5: Try with "Ave" instead of "Ln" + ", CA, USA"
     trimmedQuery.replace(/\s(Ln|Lane)\s*$/i, 'Ave') + ', CA, USA',
   ].filter(Boolean) as string[];
 
   for (const searchQuery of strategies) {
     try {
-      const url = `${NOMINATIM_API}?q=${encodeURIComponent(searchQuery)}&format=json&addressdetails=1&limit=1`;
+      const url = `${NOMINATIM_API}?q=${encodeURIComponent(searchQuery)}&format=json&addressdetails=1&limit=5`;
 
       const response = await fetch(url, {
         headers: {
@@ -78,7 +97,40 @@ export async function searchAddress(query: string): Promise<SearchResult | null>
 
       const data = await response.json();
 
-      if (data.length > 0) {
+      if (!Array.isArray(data) || data.length === 0) {
+        continue;
+      }
+
+      for (const candidate of data) {
+        const candidateZip = extractFiveDigitZip(candidate.address?.postcode) ??
+          extractFiveDigitZip(candidate.display_name);
+        const candidateHouseNumber = candidate.address?.house_number ||
+          extractStreetNumber(candidate.display_name);
+
+        if (requestedZip && candidateZip !== requestedZip) {
+          continue;
+        }
+
+        if (requestedHouseNumber) {
+          if (!candidateHouseNumber) {
+            continue;
+          }
+          if (candidateHouseNumber !== requestedHouseNumber) {
+            continue;
+          }
+        }
+
+        return {
+          lat: parseFloat(candidate.lat),
+          lon: parseFloat(candidate.lon),
+          display_name: candidate.display_name,
+          address: candidate.address || {},
+          name: candidate.display_name.split(',')[0].trim(),
+        };
+      }
+
+      // Fallback only when request had no strict ZIP/house constraints.
+      if (!requestedZip && !requestedHouseNumber) {
         const result = data[0];
         return {
           lat: parseFloat(result.lat),
