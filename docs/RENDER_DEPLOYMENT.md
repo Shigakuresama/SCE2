@@ -116,6 +116,7 @@ curl https://sce2-cloud-server.onrender.com/api/health
 ### Access Webapps
 - **Desktop**: https://sce2-webap.onrender.com
 - **Mobile**: https://sce2-mobile.onrender.com
+- **Queue (direct link)**: https://sce2-webap.onrender.com/#/queue
 
 ### Generate Test PDF
 1. Open webapp URL
@@ -191,6 +192,12 @@ Check the **"Logs"** tab in your service. Common issues:
 
 1. Check `ALLOWED_ORIGINS` includes your Render URLs
 2. Ensure frontend URLs are correct
+
+### Queue Path Returns 404
+
+1. Use `https://sce2-webap.onrender.com/#/queue` instead of `/queue`
+2. Static hosting serves the SPA from `index.html`; hash routing avoids deep-link 404s
+3. Hard refresh (`Ctrl/Cmd + Shift + R`) after deployment to load the latest router bundle
 
 ### QR Codes Don't Work
 
