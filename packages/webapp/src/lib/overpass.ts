@@ -130,8 +130,18 @@ export async function fetchAddressesInBounds(
 
   console.log(`[Overpass] Normalized to ${addresses.length} valid addresses`);
 
+  const dedupedAddresses = Array.from(
+    new Map(
+      addresses.map((addr) => [
+        `${addr.streetNumber.toLowerCase()}|${addr.streetName.toLowerCase()}|${addr.zipCode.toLowerCase()}`,
+        addr,
+      ])
+    ).values()
+  );
+  console.log(`[Overpass] Deduped to ${dedupedAddresses.length} unique addresses`);
+
   // Validate all addresses before returning
-  const validAddresses = addresses.filter(addr => {
+  const validAddresses = dedupedAddresses.filter(addr => {
     const isValid = !!(
       addr.addressFull &&
       addr.streetNumber &&

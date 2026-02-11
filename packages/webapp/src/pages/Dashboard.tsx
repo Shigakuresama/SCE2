@@ -36,6 +36,7 @@ export const Dashboard: React.FC = () => {
       fetchProperties();
     } catch (err) {
       console.error('Failed to queue addresses from map:', err);
+      throw err;
     }
   };
 
