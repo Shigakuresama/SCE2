@@ -15,6 +15,37 @@ This runbook covers deployment procedures, monitoring, common issues, and rollba
 
 ---
 
+## End-to-End Daily Workflow (Hardened)
+
+Use this sequence for day-to-day operations:
+
+1. In webapp (`/`), select exact houses for the route.
+2. Run route extraction from extension so customer name/phone is written back to properties.
+3. Generate the route PDF from the same selected set (same property IDs used for extraction + PDF).
+4. In field, scan each QR from mobile-web and upload:
+   - `BILL` image
+   - `SIGNATURE` image
+   - age/notes as needed
+5. Tap **Complete Visit** in mobile-web (enabled only when BILL + SIGNATURE exist and status is `READY_FOR_FIELD`).
+6. Back at office, open webapp `/field-ops`:
+   - filter missing bill/signature/age/notes
+   - resolve gaps before submission
+7. Run extension submit automation on SCE website.
+
+### Expected Artifact Organization
+
+- Uploaded files are written to `UPLOAD_DIR` (or `./uploads`) with unique names.
+- Each file is tracked in `Document` rows linked by `propertyId` with `docType` (e.g., `BILL`, `SIGNATURE`).
+- Operational completeness is reviewed in webapp `/field-ops` by checklist status.
+
+### Status Transition Guardrails
+
+- `PENDING_SCRAPE` → `READY_FOR_FIELD` after extraction.
+- `READY_FOR_FIELD` → `VISITED` only through `POST /api/properties/:id/complete-visit`.
+- Completion requires both BILL + SIGNATURE documents; otherwise API returns conflict.
+
+---
+
 ## Deployment Procedures
 
 ### Local Development Deployment

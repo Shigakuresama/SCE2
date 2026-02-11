@@ -444,6 +444,7 @@ After customer data is extracted:
    - Customer name and phone
    - AGE field for hand-writing
    - NOTES field for observations
+   - Checkbox field for completion tracking
 
 ### 4. Field Work (Mobile)
 
@@ -453,22 +454,26 @@ After customer data is extracted:
 4. Add field data:
    - Customer age (from door conversation)
    - Notes (property condition, interest level)
-   - Photos (exterior, equipment, etc.)
-5. Tap **Submit** to save
+   - Utility bill photo upload (BILL)
+   - Customer signature upload (SIGNATURE)
+5. Tap **Complete Visit** (enabled only after BILL + SIGNATURE are uploaded)
 
 ### 5. Submit Rebate Application
 
-1. Navigate to SCE rebate website
-2. Extension detects the page
-3. Click extension icon or use auto-fill
-4. All sections are populated:
+1. Back at the office, open the webapp **Field Ops** page (`/field-ops`)
+2. Filter for missing artifacts (Bill, Signature, Age, Notes) and resolve gaps
+3. Navigate to SCE rebate website
+4. Extension detects the page
+5. Click extension icon or use auto-fill
+6. All sections are populated with section-aware rules:
    - Customer Information
    - Property Information
    - Project Information
    - Equipment Details
    - Trade Ally Information
    - Appointments
-5. Review and click Submit
+   - Homeowner auto-fill and special-case field logic
+7. Review and click Submit
 
 ---
 
