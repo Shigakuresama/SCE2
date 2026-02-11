@@ -79,6 +79,7 @@ model Route {
 
   name        String    // User-defined route name
   description String?
+  orderedPropertyIdsJson String?
 
   properties  Property[]
 
