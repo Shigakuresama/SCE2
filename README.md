@@ -430,21 +430,33 @@ Processing 15/25 addresses...
 └─────────────────────────────────────┘
 ```
 
-### 3. Generate Route PDF
+### 3. Plan Route + Generate PDF (Desktop or Phone)
 
-After customer data is extracted:
+You now have two valid paths:
 
-1. Click **Generate PDF** on the selected properties bar
-2. Configure options:
-   - Start location (optional)
-   - Include/exclude customer data
-3. PDF is generated with:
-   - 3x3 grid layout (9 properties per page)
-   - QR codes for mobile access
-   - Customer name and phone
-   - AGE field for hand-writing
-   - NOTES field for observations
-   - Checkbox field for completion tracking
+#### Path A: Deployed route planning from phone/browser (no extension required)
+
+1. Open the deployed webapp at `/mobile-pack` (example: `https://sce2-webap.onrender.com/mobile-pack`)
+2. Select the houses for today’s run
+3. Enter optional start latitude/longitude
+4. Tap **Plan Route** to persist optimized property order
+5. Tap **Generate PDF** to download the fillable QR route sheet
+
+#### Path B: Desktop route workflow with extension extraction first
+
+1. Use the Route Processor to run extraction on selected properties
+2. Generate PDF from the selected properties
+
+PDF output includes:
+- 3x3 grid layout (9 properties per page)
+- QR codes for mobile access
+- Customer name and phone (when available)
+- Fillable AGE field
+- Fillable NOTES field
+- Fillable checkbox/phone correction fields
+
+Extension-only boundary:
+- SCE extraction automation and SCE final submission automation are still desktop extension features.
 
 ### 4. Field Work (Mobile)
 

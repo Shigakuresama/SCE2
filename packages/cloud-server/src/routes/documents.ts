@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { param, validationResult } from 'express-validator';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
@@ -8,6 +7,19 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 import { ValidationError, NotFoundError } from '../types/errors.js';
 
 export const documentRoutes = Router();
+
+function parsePositiveInteger(value: string, fieldName: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new ValidationError(`${fieldName} must be a positive integer`);
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new ValidationError(`${fieldName} must be a positive integer`);
+  }
+
+  return parsed;
+}
 
 // Multer config for file uploads
 const storage = multer.diskStorage({
@@ -41,12 +53,8 @@ const upload = multer({
 // GET /api/documents/:id - Get document info
 documentRoutes.get(
   '/:id',
-  [param('id').isInt({ min: 1 })],
   asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) throw new ValidationError(errors.array()[0].msg);
-
-    const documentId = parseInt(req.params.id);
+    const documentId = parsePositiveInteger(req.params.id, 'id');
     const document = await prisma.document.findUnique({
       where: { id: documentId },
       include: {
@@ -138,12 +146,8 @@ documentRoutes.post(
 // DELETE /api/documents/:id - Delete document
 documentRoutes.delete(
   '/:id',
-  [param('id').isInt({ min: 1 })],
   asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) throw new ValidationError(errors.array()[0].msg);
-
-    const documentId = parseInt(req.params.id);
+    const documentId = parsePositiveInteger(req.params.id, 'id');
     await prisma.document.delete({
       where: { id: documentId },
     });
@@ -156,7 +160,7 @@ documentRoutes.delete(
 documentRoutes.post(
   '/properties/:propertyId/documents',
   asyncHandler(async (req, res) => {
-    const propertyId = parseInt(req.params.propertyId);
+    const propertyId = parsePositiveInteger(req.params.propertyId, 'propertyId');
     const { docType, fileName, base64Data, mimeType } = req.body;
 
     // Validate required fields
