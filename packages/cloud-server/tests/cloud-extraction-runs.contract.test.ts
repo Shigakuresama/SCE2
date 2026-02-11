@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { execSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -9,15 +9,31 @@ const tempDir = mkdtempSync(path.join(os.tmpdir(), 'sce2-cloud-extract-'));
 const dbPath = path.join(tempDir, 'contract.sqlite');
 const previousDatabaseUrl = process.env.DATABASE_URL;
 const previousEncryptionKey = process.env.SCE_SESSION_ENCRYPTION_KEY;
+const previousAutomationEnabled = process.env.SCE_AUTOMATION_ENABLED;
 
 beforeAll(() => {
   process.env.DATABASE_URL = `file:${dbPath}`;
   process.env.SCE_SESSION_ENCRYPTION_KEY = 'test-key-for-cloud-extraction-contracts';
+  process.env.SCE_AUTOMATION_ENABLED = 'true';
   execSync('npx prisma db push --schema prisma/schema.prisma --skip-generate', {
     cwd: process.cwd(),
     stdio: 'ignore',
     env: process.env,
   });
+});
+
+beforeEach(async () => {
+  const { setCloudExtractionEnabledForTests } = await import(
+    '../src/routes/cloud-extraction.js'
+  );
+  setCloudExtractionEnabledForTests(true);
+});
+
+afterEach(async () => {
+  const { setCloudExtractionEnabledForTests } = await import(
+    '../src/routes/cloud-extraction.js'
+  );
+  setCloudExtractionEnabledForTests(null);
 });
 
 afterAll(() => {
@@ -33,10 +49,38 @@ afterAll(() => {
     process.env.SCE_SESSION_ENCRYPTION_KEY = previousEncryptionKey;
   }
 
+  if (previousAutomationEnabled === undefined) {
+    delete process.env.SCE_AUTOMATION_ENABLED;
+  } else {
+    process.env.SCE_AUTOMATION_ENABLED = previousAutomationEnabled;
+  }
+
   rmSync(tempDir, { recursive: true, force: true });
 });
 
 describe('Cloud Extraction Runs Contract', () => {
+  it('returns 503 when cloud extraction feature flag is disabled', async () => {
+    const { setCloudExtractionEnabledForTests } = await import(
+      '../src/routes/cloud-extraction.js'
+    );
+    setCloudExtractionEnabledForTests(false);
+
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const res = await request(app)
+      .post('/api/cloud-extraction/sessions')
+      .send({
+        label: 'Disabled Session',
+        sessionStateJson: '{"cookies":[]}',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      });
+
+    expect(res.status).toBe(503);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toBe('Cloud extraction disabled');
+  });
+
   it('creates encrypted extraction session', async () => {
     const { buildTestApp } = await import('./helpers/test-app.js');
     const app = await buildTestApp();

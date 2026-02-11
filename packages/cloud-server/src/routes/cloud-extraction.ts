@@ -15,11 +15,20 @@ let runLauncher = async (runId: number) => {
     client: new PlaywrightSCEAutomationClient(),
   });
 };
+let cloudExtractionEnabledOverride: boolean | null = null;
+
+function isCloudExtractionEnabled(): boolean {
+  return cloudExtractionEnabledOverride ?? config.sceAutomationEnabled;
+}
 
 export function setCloudExtractionRunLauncherForTests(
   launcher: typeof runLauncher
 ) {
   runLauncher = launcher;
+}
+
+export function setCloudExtractionEnabledForTests(enabled: boolean | null) {
+  cloudExtractionEnabledOverride = enabled;
 }
 
 function parseSessionId(value: unknown): number {
@@ -94,6 +103,17 @@ function requireEncryptionKey(): string {
 
   return key;
 }
+
+cloudExtractionRoutes.use((req, res, next) => {
+  if (!isCloudExtractionEnabled()) {
+    res.status(503).json({
+      success: false,
+      error: { message: 'Cloud extraction disabled' },
+    });
+    return;
+  }
+  next();
+});
 
 cloudExtractionRoutes.post(
   '/sessions',
