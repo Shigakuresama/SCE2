@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/database.js';
+import { orderPropertiesByNearestNeighbor } from '../lib/route-planner.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { NotFoundError, ValidationError } from '../types/errors.js';
 
@@ -97,6 +98,41 @@ async function verifyPropertiesExist(propertyIds: number[]): Promise<void> {
   }
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function validateStartCoordinate(
+  startLat: unknown,
+  startLon: unknown
+): { latitude: number; longitude: number } | null {
+  const hasStartLat = startLat !== undefined && startLat !== null;
+  const hasStartLon = startLon !== undefined && startLon !== null;
+
+  if (!hasStartLat && !hasStartLon) {
+    return null;
+  }
+
+  if (!isFiniteNumber(startLat) || !isFiniteNumber(startLon)) {
+    throw new ValidationError('startLat and startLon must both be finite numbers when provided');
+  }
+
+  return {
+    latitude: startLat,
+    longitude: startLon,
+  };
+}
+
+function hasValidPropertyCoordinate(property: {
+  latitude: number | null;
+  longitude: number | null;
+}): property is {
+  latitude: number;
+  longitude: number;
+} {
+  return isFiniteNumber(property.latitude) && isFiniteNumber(property.longitude);
+}
+
 // GET /api/routes - List all routes
 routeRoutes.get(
   '/',
@@ -177,18 +213,53 @@ routeRoutes.post(
 routeRoutes.post(
   '/mobile-plan',
   asyncHandler(async (req, res) => {
-    const { name, propertyIds } = req.body;
+    const { name, propertyIds, description, startLat, startLon } = req.body;
     const trimmedName = validateRouteName(name);
+    const normalizedDescription = validateDescription(description);
     const normalizedPropertyIds = validatePropertyIds(propertyIds, {
       required: true,
       allowEmpty: false,
     });
     await verifyPropertiesExist(normalizedPropertyIds);
 
-    const orderedPropertyIdsJson = JSON.stringify(normalizedPropertyIds);
+    const requestedStartCoordinate = validateStartCoordinate(startLat, startLon);
+    const propertiesForPlanning = await prisma.property.findMany({
+      where: { id: { in: normalizedPropertyIds } },
+      select: {
+        id: true,
+        latitude: true,
+        longitude: true,
+      },
+    });
+
+    const propertiesById = new Map(propertiesForPlanning.map((property) => [property.id, property]));
+    const propertiesInInputOrder = normalizedPropertyIds
+      .map((id) => propertiesById.get(id))
+      .filter(
+        (property): property is (typeof propertiesForPlanning)[number] => property !== undefined
+      );
+
+    if (propertiesInInputOrder.length !== normalizedPropertyIds.length) {
+      throw new ValidationError('Failed to load all properties for route optimization');
+    }
+
+    const fallbackStartProperty = propertiesInInputOrder.find(hasValidPropertyCoordinate);
+    const startCoordinate = requestedStartCoordinate
+      ?? (fallbackStartProperty
+        ? { latitude: fallbackStartProperty.latitude, longitude: fallbackStartProperty.longitude }
+        : null);
+
+    const orderedPropertyIds = startCoordinate
+      ? orderPropertiesByNearestNeighbor(propertiesInInputOrder, startCoordinate).map(
+        (property) => property.id
+      )
+      : [...normalizedPropertyIds];
+
+    const orderedPropertyIdsJson = JSON.stringify(orderedPropertyIds);
     const route = await prisma.route.create({
       data: {
         name: trimmedName,
+        description: normalizedDescription,
         orderedPropertyIdsJson,
         properties: {
           connect: normalizedPropertyIds.map((id: number) => ({ id })),
@@ -203,7 +274,7 @@ routeRoutes.post(
       success: true,
       data: {
         routeId: route.id,
-        orderedPropertyIds: normalizedPropertyIds,
+        orderedPropertyIds,
         orderedPropertyIdsJson: route.orderedPropertyIdsJson,
         properties: route.properties,
       },

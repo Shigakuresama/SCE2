@@ -78,6 +78,102 @@ describe('Mobile Route Plan Contract', () => {
     expect(persistedRoute.body.data.orderedPropertyIdsJson).toBe(JSON.stringify(propertyIds));
   });
 
+  it('optimizes orderedPropertyIds using nearest-neighbor from provided start coordinates', async () => {
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const farProperty = await request(app).post('/api/properties').send({
+      addressFull: '901 Route Test Way, Santa Ana, CA 92701',
+      streetNumber: '901',
+      streetName: 'Route Test Way',
+      zipCode: '92701',
+      latitude: 0,
+      longitude: 3,
+    });
+    const nearProperty = await request(app).post('/api/properties').send({
+      addressFull: '902 Route Test Way, Santa Ana, CA 92701',
+      streetNumber: '902',
+      streetName: 'Route Test Way',
+      zipCode: '92701',
+      latitude: 0,
+      longitude: 1,
+    });
+    const midProperty = await request(app).post('/api/properties').send({
+      addressFull: '903 Route Test Way, Santa Ana, CA 92701',
+      streetNumber: '903',
+      streetName: 'Route Test Way',
+      zipCode: '92701',
+      latitude: 0,
+      longitude: 2,
+    });
+
+    const inputOrder = [farProperty.body.data.id, nearProperty.body.data.id, midProperty.body.data.id];
+    const expectedOptimizedOrder = [
+      nearProperty.body.data.id,
+      midProperty.body.data.id,
+      farProperty.body.data.id,
+    ];
+
+    const res = await request(app).post('/api/routes/mobile-plan').send({
+      name: 'Optimized Route',
+      description: 'Nearest-neighbor contract test',
+      propertyIds: inputOrder,
+      startLat: 0,
+      startLon: 0,
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.orderedPropertyIds).toEqual(expectedOptimizedOrder);
+    expect(res.body.data.orderedPropertyIds).not.toEqual(inputOrder);
+    expect(res.body.data.orderedPropertyIdsJson).toBe(JSON.stringify(expectedOptimizedOrder));
+    expect(res.body.data.properties).toHaveLength(inputOrder.length);
+
+    const persistedRoute = await request(app).get(`/api/routes/${res.body.data.routeId}`);
+    expect(persistedRoute.status).toBe(200);
+    expect(persistedRoute.body.data.description).toBe('Nearest-neighbor contract test');
+    expect(persistedRoute.body.data.orderedPropertyIdsJson).toBe(
+      JSON.stringify(expectedOptimizedOrder)
+    );
+  });
+
+  it('rejects requests with invalid startLat/startLon values', async () => {
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const existing = await request(app).post('/api/properties').send({
+      addressFull: '910 Invalid Start Way, Santa Ana, CA 92701',
+      streetNumber: '910',
+      streetName: 'Invalid Start Way',
+      zipCode: '92701',
+      latitude: 33.7445,
+      longitude: -117.8677,
+    });
+
+    const invalidPayloads = [
+      {
+        name: 'Invalid Start Lat',
+        propertyIds: [existing.body.data.id],
+        startLat: '33.7445',
+        startLon: -117.8677,
+      },
+      {
+        name: 'Invalid Start Lon',
+        propertyIds: [existing.body.data.id],
+        startLat: 33.7445,
+        startLon: 'not-a-number',
+      },
+    ];
+
+    for (const payload of invalidPayloads) {
+      const res = await request(app).post('/api/routes/mobile-plan').send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toContain('startLat');
+    }
+  });
+
   it('rejects requests when one or more propertyIds do not exist', async () => {
     const { buildTestApp } = await import('./helpers/test-app.js');
     const app = await buildTestApp();
