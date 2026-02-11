@@ -252,7 +252,7 @@ async function navigateToCustomerSearchAfterLogin(page: Page, targetUrl: string)
     if (
       currentUrl.hostname === expectedUrl.hostname &&
       currentUrl.protocol === expectedUrl.protocol &&
-      isOnOnsitePath(currentUrl.pathname)
+      normalizePath(currentUrl.pathname) === normalizePath(expectedUrl.pathname)
     ) {
       return;
     }
@@ -268,8 +268,7 @@ async function navigateToCustomerSearchAfterLogin(page: Page, targetUrl: string)
 
 async function assertOnCustomerSearchPage(
   page: Page,
-  targetUrl: string,
-  options?: { allowOnsiteRoot?: boolean }
+  targetUrl: string
 ): Promise<void> {
   if (await hasLoginPrompt(page)) {
     throw new Error(
@@ -280,8 +279,11 @@ async function assertOnCustomerSearchPage(
   const expectedPath = normalizePath(new URL(targetUrl).pathname);
   const actualPath = normalizePath(new URL(page.url()).pathname);
   if (actualPath !== expectedPath) {
-    if (options?.allowOnsiteRoot && isOnOnsitePath(actualPath)) {
-      return;
+    if (isOnOnsitePath(actualPath)) {
+      throw new Error(
+        `SCE login succeeded but landed on ${page.url()} instead of ${targetUrl}. ` +
+        'This SCE account/session does not have access to customer-search.'
+      );
     }
 
     throw new Error(
@@ -334,9 +336,7 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
       const targetUrl = resolveCustomerSearchUrl();
       await navigateToCustomerSearchAfterLogin(page, targetUrl);
       await page.waitForTimeout(1200);
-      await assertOnCustomerSearchPage(page, targetUrl, {
-        allowOnsiteRoot: true,
-      });
+      await assertOnCustomerSearchPage(page, targetUrl);
 
       const storageState = await context.storageState();
       return JSON.stringify(storageState);
