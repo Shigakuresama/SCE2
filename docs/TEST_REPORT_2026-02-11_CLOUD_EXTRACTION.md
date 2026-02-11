@@ -19,7 +19,7 @@ rg -n "SCE_AUTOMATION_ENABLED|SCE_SESSION_ENCRYPTION_KEY|cloud extraction|extens
 ## Verification Results
 
 - `npm run test --workspace=packages/cloud-server -- tests/cloud-extraction-runs.contract.test.ts tests/cloud-extraction-worker.unit.test.ts tests/sce-automation-selectors.unit.test.ts`
-  - PASS (3 files, 9 tests)
+  - PASS (3 files, 10 tests)
 - `npx tsx packages/webapp/tests/cloud-extraction.integration.ts`
   - PASS
 - `npm run build --workspace=packages/cloud-server`

@@ -212,12 +212,26 @@ cloudExtractionRoutes.post(
 
     const run = await prisma.extractionRun.findUnique({
       where: { id: runId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
 
     if (!run) {
       throw new NotFoundError('ExtractionRun', runId);
     }
+    if (run.status !== 'QUEUED') {
+      return res.status(409).json({
+        success: false,
+        error: { message: `Run ${runId} cannot be started from status ${run.status}` },
+      });
+    }
+
+    await prisma.extractionRun.update({
+      where: { id: runId },
+      data: {
+        status: 'RUNNING',
+        startedAt: new Date(),
+      },
+    });
 
     void runLauncher(runId).catch((error) => {
       logger.error('Cloud extraction run failed', {

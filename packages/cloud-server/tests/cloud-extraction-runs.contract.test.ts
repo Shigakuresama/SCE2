@@ -23,17 +23,25 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
-  const { setCloudExtractionEnabledForTests } = await import(
+  const {
+    setCloudExtractionEnabledForTests,
+    setCloudExtractionRunLauncherForTests,
+  } = await import(
     '../src/routes/cloud-extraction.js'
   );
   setCloudExtractionEnabledForTests(true);
+  setCloudExtractionRunLauncherForTests(async () => {});
 });
 
 afterEach(async () => {
-  const { setCloudExtractionEnabledForTests } = await import(
+  const {
+    setCloudExtractionEnabledForTests,
+    setCloudExtractionRunLauncherForTests,
+  } = await import(
     '../src/routes/cloud-extraction.js'
   );
   setCloudExtractionEnabledForTests(null);
+  setCloudExtractionRunLauncherForTests(async () => {});
 });
 
 afterAll(() => {
@@ -167,5 +175,30 @@ describe('Cloud Extraction Runs Contract', () => {
     expect(runDetail.body.data.id).toBe(runId);
     expect(runDetail.body.data.items).toHaveLength(2);
     expect(runDetail.body.data.items[0].status).toBe('QUEUED');
+  });
+
+  it('prevents starting a run more than once', async () => {
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const session = await request(app).post('/api/cloud-extraction/sessions').send({
+      label: 'Start Once Session',
+      sessionStateJson: '{"cookies":[]}',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+
+    const run = await request(app).post('/api/cloud-extraction/runs').send({
+      propertyIds: [201],
+      sessionId: session.body.data.id,
+    });
+    const runId = run.body.data.id;
+
+    const firstStart = await request(app).post(`/api/cloud-extraction/runs/${runId}/start`);
+    expect(firstStart.status).toBe(202);
+
+    const secondStart = await request(app).post(`/api/cloud-extraction/runs/${runId}/start`);
+    expect(secondStart.status).toBe(409);
+    expect(secondStart.body.success).toBe(false);
+    expect(secondStart.body.error.message).toContain('cannot be started');
   });
 });
