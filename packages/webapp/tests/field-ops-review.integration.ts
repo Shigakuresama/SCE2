@@ -12,6 +12,7 @@ const fieldOpsPageSource = readFileSync(
   path.join(webappRoot, 'src/pages/FieldOpsReview.tsx'),
   'utf-8'
 );
+const apiSource = readFileSync(path.join(webappRoot, 'src/lib/api.ts'), 'utf-8');
 
 assert.match(
   appSource,
@@ -27,6 +28,16 @@ assert.match(
   fieldOpsPageSource,
   /Missing Bill/,
   'Field ops page must expose artifact filters'
+);
+assert.match(
+  apiSource,
+  /params\.append\('limit',/,
+  'API client should support explicit limit query params'
+);
+assert.match(
+  apiSource,
+  /getProperties\(\{\s*status,\s*limit:\s*5000\s*\}\)/,
+  'Field ops API call should request a high limit to avoid truncation'
 );
 
 const baseUrl = process.env.CLOUD_URL || 'http://localhost:3333';

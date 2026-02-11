@@ -367,6 +367,10 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
       await markJobComplete(job.id, result.sceCaseId);
       SUBMIT_QUEUE.processedCount++;
     } else if (result.success && result.skippedFinalSubmit) {
+      await releaseSubmitJob(
+        job.id,
+        result.message || 'Final submit disabled by configuration'
+      );
       log(
         `Submit job ${job.id} paused: ${result.message || 'Final submit disabled by configuration'}`
       );
@@ -405,6 +409,51 @@ async function markJobComplete(propertyId: number, sceCaseId: string) {
     log('Job marked complete:', propertyId);
   } catch (error) {
     log('Failed to mark job complete:', error);
+  }
+}
+
+async function releaseSubmitJob(propertyId: number, reason: string) {
+  const config = await getConfig();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${config.apiBaseUrl}/api/queue/${propertyId}/requeue-submit`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      },
+      config.timeout
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    log('Submit job requeued to VISITED:', propertyId);
+    return;
+  } catch (error) {
+    log('Requeue endpoint failed, using fallback PATCH:', error);
+  }
+
+  try {
+    const fallbackResponse = await fetchWithTimeout(
+      `${config.apiBaseUrl}/api/properties/${propertyId}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'VISITED' }),
+      },
+      config.timeout
+    );
+
+    if (!fallbackResponse.ok) {
+      throw new Error(`HTTP ${fallbackResponse.status}`);
+    }
+
+    log('Submit job restored to VISITED via fallback:', propertyId);
+  } catch (fallbackError) {
+    log('Failed to restore submit job status:', fallbackError);
   }
 }
 

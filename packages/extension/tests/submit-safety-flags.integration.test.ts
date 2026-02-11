@@ -55,5 +55,6 @@ describe('Submit automation safety gates', () => {
 
     expect(backgroundSource).toContain('if (!config.enableFinalSubmit)');
     expect(backgroundSource).toContain('Final submit automation disabled');
+    expect(backgroundSource).toContain('/requeue-submit');
   });
 });

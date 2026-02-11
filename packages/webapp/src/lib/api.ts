@@ -1,9 +1,9 @@
 // ============= API Service Layer =============
 // Client for cloud server communication
 
+import { PropertyStatus } from '../types';
 import type {
   Property,
-  PropertyStatus,
   PropertyFilters,
   Route,
   QueueStatus,
@@ -47,6 +47,10 @@ class SCE2API {
     if (filters?.search) params.append('search', filters.search);
     if (filters?.hasRoute !== undefined)
       params.append('hasRoute', String(filters.hasRoute));
+    if (typeof filters?.limit === 'number')
+      params.append('limit', String(filters.limit));
+    if (typeof filters?.offset === 'number')
+      params.append('offset', String(filters.offset));
 
     const query = params.toString() ? `?${params}` : '';
     return this.request<Property[]>(`/properties${query}`);
@@ -57,13 +61,13 @@ class SCE2API {
    */
   async getFieldOpsProperties(): Promise<Property[]> {
     const statuses: PropertyStatus[] = [
-      'VISITED' as PropertyStatus,
-      'READY_FOR_SUBMISSION' as PropertyStatus,
-      'COMPLETE' as PropertyStatus,
+      PropertyStatus.VISITED,
+      PropertyStatus.READY_FOR_SUBMISSION,
+      PropertyStatus.COMPLETE,
     ];
 
     const results = await Promise.all(
-      statuses.map((status) => this.getProperties({ status }))
+      statuses.map((status) => this.getProperties({ status, limit: 5000 }))
     );
 
     return results.flat();

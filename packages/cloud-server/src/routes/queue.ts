@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/database.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { logger } from '../lib/logger.js';
-import { ValidationError } from '../types/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 
 export const queueRoutes = Router();
 
@@ -197,6 +197,52 @@ queueRoutes.post(
     });
 
     res.json({ success: true, data: property });
+  })
+);
+
+// POST /api/queue/:id/requeue-submit - Return claimed submit job back to VISITED
+queueRoutes.post(
+  '/:id/requeue-submit',
+  asyncHandler(async (req, res) => {
+    const rawId = req.params.id;
+    const propertyId = Number(rawId);
+    const { reason } = req.body ?? {};
+
+    if (!/^\d+$/.test(rawId) || !Number.isInteger(propertyId) || propertyId <= 0) {
+      throw new ValidationError('id must be a positive integer');
+    }
+
+    const property = await prisma.property.findUnique({
+      where: { id: propertyId },
+    });
+
+    if (!property) {
+      throw new NotFoundError('Property', rawId);
+    }
+
+    if (property.status === 'VISITED') {
+      logger.warn(`Property ${rawId} already VISITED during requeue`, { reason });
+      return res.json({
+        success: true,
+        data: property,
+        message: 'Property already available for submission',
+      });
+    }
+
+    if (property.status !== 'SUBMITTING_IN_PROGRESS') {
+      throw new ConflictError(
+        `Requeue submit only allowed from SUBMITTING_IN_PROGRESS. Current status: ${property.status}`
+      );
+    }
+
+    const updated = await prisma.property.update({
+      where: { id: propertyId },
+      data: { status: 'VISITED' },
+    });
+
+    logger.warn(`Property ${rawId} requeued to VISITED`, { reason });
+
+    res.json({ success: true, data: updated });
   })
 );
 

@@ -146,4 +146,6 @@ export interface PropertyFilters {
   state?: string;
   search?: string;
   hasRoute?: boolean;
+  limit?: number;
+  offset?: number;
 }
