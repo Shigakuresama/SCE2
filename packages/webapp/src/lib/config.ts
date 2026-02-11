@@ -10,7 +10,7 @@ const config = {
 
   // Base URL for mobile web (for QR codes in PDFs)
   MOBILE_BASE_URL: import.meta.env.VITE_MOBILE_BASE_URL ||
-    (import.meta.env.MODE === 'production' ? 'https://sce2-webap.onrender.com' : 'http://localhost:5174'),
+    (import.meta.env.MODE === 'production' ? 'https://sce2-mobile.onrender.com' : 'http://localhost:5174'),
 
   // Polling interval for queue status (milliseconds)
   POLL_INTERVAL: 5000,

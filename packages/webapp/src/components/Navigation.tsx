@@ -13,6 +13,7 @@ export const Navigation: React.FC = () => {
     { path: '/properties', label: 'Properties', icon: '📋' },
     { path: '/queue', label: 'Queue', icon: '📬' },
     { path: '/field-ops', label: 'Field Ops', icon: '🧾' },
+    { path: '/mobile-pack', label: 'Mobile Pack', icon: '🗺️' },
     { path: '/settings', label: 'Settings', icon: '⚙️' },
   ];
 
