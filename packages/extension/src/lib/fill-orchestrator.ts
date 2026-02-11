@@ -267,6 +267,17 @@ async function handleHomeownerAutoFill(
   if (!customerInfo) return;
 
   try {
+    // Some flows require creating the homeowner row first via "+" button.
+    const homeownerField = findField('Homeowner First Name');
+    if (!homeownerField) {
+      try {
+        await clickAddButton(signal);
+        await waitForReady(1000);
+      } catch {
+        // Continue and attempt direct fill below.
+      }
+    }
+
     await fillFieldByLabel('Homeowner First Name', customerInfo.firstName, signal);
     await fillFieldByLabel('Homeowner Last Name', customerInfo.lastName, signal);
 
@@ -282,6 +293,34 @@ async function handleHomeownerAutoFill(
     console.log('[Homeowner] Auto-filled from customer info');
   } catch (e) {
     console.warn('[Homeowner] Auto-fill failed:', (e as Error).message);
+  }
+}
+
+/**
+ * If Contact Phone is empty but Alternate Phone is present, copy it over.
+ */
+async function copyAlternatePhoneToContact(signal: AbortSignal): Promise<void> {
+  const existingContactPhone =
+    readFieldValue('Contact Phone') || readFieldValue('Contact Number');
+  if (existingContactPhone) {
+    return;
+  }
+
+  const alternatePhone =
+    readFieldValue('Alternate Phone') || readFieldValue('Alternate Number');
+  if (!alternatePhone) {
+    return;
+  }
+
+  const contactFieldLabels = ['Contact Phone', 'Contact Number'];
+  for (const label of contactFieldLabels) {
+    try {
+      await fillFieldByLabel(label, alternatePhone, signal);
+      console.log(`[ContactPhone] Copied alternate phone into ${label}`);
+      return;
+    } catch {
+      // Try next contact field label
+    }
   }
 }
 
@@ -339,6 +378,8 @@ async function fillSection(
       });
       // Auto-fill homeowner fields if applicable
       await handleHomeownerAutoFill(propertyData, signal);
+      // Apply phone fallback when contact phone is blank.
+      await copyAlternatePhoneToContact(signal);
       break;
 
     case 'Project Information':

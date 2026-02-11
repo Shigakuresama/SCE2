@@ -27,7 +27,13 @@ import {
   extractStatusInfo,
 } from './lib/sections/sections-extractor.js';
 import { BannerController } from './lib/banner.js';
-import { fillAllSections, fillCurrentSection, resetStopFlag, requestStop } from './lib/fill-orchestrator.js';
+import {
+  fillAllSections,
+  fillCurrentSection,
+  resetStopFlag,
+  requestStop,
+} from './lib/fill-orchestrator.js';
+import type { BannerController as FillBannerController } from './lib/fill-orchestrator.js';
 import { SCE1_DEFAULTS } from './lib/sce1-logic.js';
 import { readFieldValue, waitForElement as waitForElementUtil } from './lib/dom-utils.js';
 
@@ -512,25 +518,50 @@ async function performSubmit(jobData: SubmitMessageData): Promise<SubmitResult> 
 
     (buttons[0] as HTMLElement).click();
 
-    // 3. Wait for customer info section
-    await waitForElement('input[name="firstName"]', 10000);
+    // 3. Wait for sidebar sections to load so section-aware fill can run.
+    await waitForElement('.sections-menu-item__title', 10000);
 
-    // 4. Fill customer info
-    if (jobData.customerName) {
-      const [firstName, ...lastNameParts] = jobData.customerName.split(' ');
-      await helper.fillCustomerInfo({
-        firstName,
-        lastName: lastNameParts.join(' ') || '',
-        phone: jobData.customerPhone || '',
-      });
+    // 4. Build submit payload with persisted defaults.
+    const [firstName, ...lastNameParts] = (jobData.customerName || '').split(' ');
+    const storage = await chrome.storage.local.get(['propertyData']);
+    const storedPropertyData = storage.propertyData || {};
+    const propertyData = {
+      ...SCE1_DEFAULTS,
+      ...storedPropertyData,
+      firstName: firstName || storedPropertyData.firstName || SCE1_DEFAULTS.firstName,
+      lastName:
+        lastNameParts.join(' ') ||
+        storedPropertyData.lastName ||
+        SCE1_DEFAULTS.lastName,
+      phone: jobData.customerPhone || storedPropertyData.phone || SCE1_DEFAULTS.phone,
+      primaryApplicantAge:
+        jobData.customerAge !== undefined
+          ? String(jobData.customerAge)
+          : storedPropertyData.primaryApplicantAge,
+      comments: jobData.fieldNotes || storedPropertyData.comments,
+      zipCode: jobData.zipCode || storedPropertyData.zipCode || SCE1_DEFAULTS.zipCode,
+    };
+
+    // 5. Fill all available sections with section-aware strategies and special rules.
+    const banner =
+      ((window as any).sce2Banner as FillBannerController | undefined) ||
+      ({
+        setFilling: () => {},
+        setSuccess: () => {},
+        setError: () => {},
+        setStopped: () => {},
+        updateProgress: () => {},
+        isStopped: () => false,
+        resetStopState: () => {},
+      } satisfies FillBannerController);
+
+    await fillAllSections(propertyData, banner);
+
+    // 6. Navigate to upload section for document upload.
+    const navigatedToUploads = await helper.getNavigator().goTo('File Uploads');
+    if (!navigatedToUploads) {
+      throw new Error('Could not navigate to File Uploads section');
     }
-
-    // 5. Click next to proceed
-    await helper.clickNext();
-
-    // 6. Navigate to upload section
-    // This is simplified - full implementation would navigate all sections
-    console.log('Navigating to upload section...');
 
     // 7. Upload documents
     if (jobData.documents && jobData.documents.length > 0) {
@@ -538,7 +569,13 @@ async function performSubmit(jobData: SubmitMessageData): Promise<SubmitResult> 
       await helper.uploadDocuments(jobData.documents);
     }
 
-    // 8. Submit form
+    // 8. Attempt to submit and read case ID.
+    try {
+      await helper.clickNext();
+    } catch (error) {
+      console.warn('[Submit] Unable to click final submit/next:', error);
+    }
+
     const sceCaseId = await extractCaseId();
 
     console.log('Submit complete:', sceCaseId);
