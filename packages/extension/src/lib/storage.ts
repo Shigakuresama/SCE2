@@ -13,6 +13,9 @@ interface Config {
   timeout: number;
   maxConcurrent: number;
   debugMode: boolean;
+  submitVisibleSectionOnly: boolean;
+  enableDocumentUpload: boolean;
+  enableFinalSubmit: boolean;
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -23,6 +26,9 @@ const DEFAULT_CONFIG: Config = {
   timeout: 30000,
   maxConcurrent: 1,
   debugMode: false,
+  submitVisibleSectionOnly: true,
+  enableDocumentUpload: false,
+  enableFinalSubmit: false,
 };
 
 /**
@@ -201,4 +207,3 @@ export const configManager = {
 
 // Export types for use in other modules
 export type { Config };
-

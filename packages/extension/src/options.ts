@@ -116,6 +116,9 @@ interface SCE2Config {
 
   // Behavior
   autoFillPrompt: boolean;
+  submitVisibleSectionOnly: boolean;
+  enableDocumentUpload: boolean;
+  enableFinalSubmit: boolean;
   customFieldMap: string;
 }
 
@@ -234,6 +237,9 @@ const DEFAULT_CONFIG: SCE2Config = {
 
   // Behavior
   autoFillPrompt: false,
+  submitVisibleSectionOnly: true,
+  enableDocumentUpload: false,
+  enableFinalSubmit: false,
   customFieldMap: '',
 };
 
@@ -370,6 +376,9 @@ const CONFIG_TO_ID_MAP: Record<keyof SCE2Config, string> = {
   finalStatus: 'finalStatus',
 
   autoFillPrompt: 'autoFillPrompt',
+  submitVisibleSectionOnly: 'submitVisibleSectionOnly',
+  enableDocumentUpload: 'enableDocumentUpload',
+  enableFinalSubmit: 'enableFinalSubmit',
   customFieldMap: 'customFieldMap',
 };
 
@@ -412,6 +421,12 @@ async function saveConfigToStorage(): Promise<void> {
         config.debugMode = getCheckboxValue(id);
       } else if (key === 'autoFillPrompt') {
         config.autoFillPrompt = getCheckboxValue(id);
+      } else if (key === 'submitVisibleSectionOnly') {
+        config.submitVisibleSectionOnly = getCheckboxValue(id);
+      } else if (key === 'enableDocumentUpload') {
+        config.enableDocumentUpload = getCheckboxValue(id);
+      } else if (key === 'enableFinalSubmit') {
+        config.enableFinalSubmit = getCheckboxValue(id);
       } else {
         (config as any)[key] = getInputValue(id);
       }

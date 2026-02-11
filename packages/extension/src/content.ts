@@ -36,6 +36,7 @@ import {
 import type { BannerController as FillBannerController } from './lib/fill-orchestrator.js';
 import { SCE1_DEFAULTS } from './lib/sce1-logic.js';
 import { readFieldValue, waitForElement as waitForElementUtil } from './lib/dom-utils.js';
+import { getConfig } from './lib/storage.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -90,6 +91,8 @@ interface ScrapeResult {
 interface SubmitResult {
   success: boolean;
   sceCaseId?: string;
+  skippedFinalSubmit?: boolean;
+  message?: string;
   error?: string;
 }
 
@@ -520,6 +523,7 @@ async function performSubmit(jobData: SubmitMessageData): Promise<SubmitResult> 
 
     // 3. Wait for sidebar sections to load so section-aware fill can run.
     await waitForElement('.sections-menu-item__title', 10000);
+    const config = await getConfig();
 
     // 4. Build submit payload with persisted defaults.
     const [firstName, ...lastNameParts] = (jobData.customerName || '').split(' ');
@@ -542,7 +546,7 @@ async function performSubmit(jobData: SubmitMessageData): Promise<SubmitResult> 
       zipCode: jobData.zipCode || storedPropertyData.zipCode || SCE1_DEFAULTS.zipCode,
     };
 
-    // 5. Fill all available sections with section-aware strategies and special rules.
+    // 5. Fill form sections with configured automation scope.
     const banner =
       ((window as any).sce2Banner as FillBannerController | undefined) ||
       ({
@@ -555,18 +559,36 @@ async function performSubmit(jobData: SubmitMessageData): Promise<SubmitResult> 
         resetStopState: () => {},
       } satisfies FillBannerController);
 
-    await fillAllSections(propertyData, banner);
-
-    // 6. Navigate to upload section for document upload.
-    const navigatedToUploads = await helper.getNavigator().goTo('File Uploads');
-    if (!navigatedToUploads) {
-      throw new Error('Could not navigate to File Uploads section');
+    if (config.submitVisibleSectionOnly) {
+      await fillCurrentSection(propertyData, banner);
+    } else {
+      await fillAllSections(propertyData, banner);
     }
 
-    // 7. Upload documents
-    if (jobData.documents && jobData.documents.length > 0) {
-      console.log(`Uploading ${jobData.documents.length} documents`);
-      await helper.uploadDocuments(jobData.documents);
+    // 6. Upload documents only when explicitly enabled.
+    if (config.enableDocumentUpload) {
+      const navigatedToUploads = await helper.getNavigator().goTo('File Uploads');
+      if (!navigatedToUploads) {
+        throw new Error('Could not navigate to File Uploads section');
+      }
+
+      if (jobData.documents && jobData.documents.length > 0) {
+        console.log(`Uploading ${jobData.documents.length} documents`);
+        await helper.uploadDocuments(jobData.documents);
+      }
+    } else {
+      console.log('[Submit] Document upload disabled by configuration');
+    }
+
+    // 7. Final submit remains guarded by configuration.
+    if (!config.enableFinalSubmit) {
+      const message = 'Final submit disabled by configuration';
+      console.log(`[Submit] ${message}`);
+      return {
+        success: true,
+        skippedFinalSubmit: true,
+        message,
+      };
     }
 
     // 8. Attempt to submit and read case ID.

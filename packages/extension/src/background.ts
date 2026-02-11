@@ -26,6 +26,9 @@ interface Config {
   timeout: number;
   maxConcurrent: number;
   debugMode: boolean;
+  submitVisibleSectionOnly: boolean;
+  enableDocumentUpload: boolean;
+  enableFinalSubmit: boolean;
 }
 
 interface ScrapeJob {
@@ -71,6 +74,8 @@ interface ScrapeResponse {
 interface SubmitResponse {
   success: boolean;
   sceCaseId?: string;
+  skippedFinalSubmit?: boolean;
+  message?: string;
   error?: string;
 }
 
@@ -361,6 +366,12 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
       // Mark as complete
       await markJobComplete(job.id, result.sceCaseId);
       SUBMIT_QUEUE.processedCount++;
+    } else if (result.success && result.skippedFinalSubmit) {
+      log(
+        `Submit job ${job.id} paused: ${result.message || 'Final submit disabled by configuration'}`
+      );
+      await closeTab(tab.id!);
+      return;
     } else {
       throw new Error(result.error || 'Submit failed');
     }
@@ -487,7 +498,9 @@ async function poll(): Promise<void> {
   }
 
   // Process submit queue
-  if (!SUBMIT_QUEUE.isProcessing) {
+  if (!config.enableFinalSubmit) {
+    log('Final submit automation disabled, skipping submit queue polling');
+  } else if (!SUBMIT_QUEUE.isProcessing) {
     const job = await fetchSubmitJob();
 
     if (job) {
