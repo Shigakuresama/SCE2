@@ -3,6 +3,9 @@ import dotenv from 'dotenv';
 // Load environment variables
 dotenv.config();
 
+const DEFAULT_SCE_LOGIN_URL =
+  'https://sce-trade-ally-community.my.site.com/tradeally/s/login/?ec=302&inst=Vt&startURL=%2Ftradeally%2Fsite%2FSiteLogin.apexp';
+
 export const config = {
   // Server
   port: parseInt(process.env.PORT || '3333'),
@@ -28,9 +31,7 @@ export const config = {
   // SCE Website
   sceBaseUrl: process.env.SCE_BASE_URL || 'https://sce.dsmcentral.com',
   sceFormPath: process.env.SCE_FORM_PATH || '/onsite/customer-search',
-  sceLoginUrl:
-    process.env.SCE_LOGIN_URL ||
-    'https://sce-trade-ally-community.my.site.com/tradeally/s/login/',
+  sceLoginUrl: process.env.SCE_LOGIN_URL || DEFAULT_SCE_LOGIN_URL,
 
   // Scraping
   scrapeDelayMs: parseInt(process.env.SCRAPE_DELAY_MS || '2000'),

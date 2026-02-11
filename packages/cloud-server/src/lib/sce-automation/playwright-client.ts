@@ -144,8 +144,43 @@ function resolveCustomerSearchUrl(): string {
   return new URL(normalizedPath, config.sceBaseUrl).toString();
 }
 
+const CANONICAL_TRADE_ALLY_LOGIN_URL =
+  'https://sce-trade-ally-community.my.site.com/tradeally/s/login/?ec=302&inst=Vt&startURL=%2Ftradeally%2Fsite%2FSiteLogin.apexp';
+
+function normalizeTradeAllyLoginUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    return CANONICAL_TRADE_ALLY_LOGIN_URL;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.hostname !== 'sce-trade-ally-community.my.site.com') {
+      return parsed.toString();
+    }
+
+    if (normalizePath(parsed.pathname) !== '/tradeally/s/login') {
+      return parsed.toString();
+    }
+
+    if (!parsed.searchParams.get('ec')) {
+      parsed.searchParams.set('ec', '302');
+    }
+    if (!parsed.searchParams.get('inst')) {
+      parsed.searchParams.set('inst', 'Vt');
+    }
+    if (!parsed.searchParams.get('startURL')) {
+      parsed.searchParams.set('startURL', '/tradeally/site/SiteLogin.apexp');
+    }
+
+    return parsed.toString();
+  } catch {
+    return CANONICAL_TRADE_ALLY_LOGIN_URL;
+  }
+}
+
 function resolveLoginUrl(): string {
-  return config.sceLoginUrl;
+  return normalizeTradeAllyLoginUrl(config.sceLoginUrl);
 }
 
 function normalizePath(pathname: string): string {
