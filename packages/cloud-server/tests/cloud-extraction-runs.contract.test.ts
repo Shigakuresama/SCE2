@@ -99,4 +99,29 @@ describe('Cloud Extraction Runs Contract', () => {
     expect(res.body.data.successCount).toBe(0);
     expect(res.body.data.failureCount).toBe(0);
   });
+
+  it('returns run details with queued items', async () => {
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const session = await request(app).post('/api/cloud-extraction/sessions').send({
+      label: 'Run Detail Session',
+      sessionStateJson: '{"cookies":[]}',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+
+    const createdRun = await request(app).post('/api/cloud-extraction/runs').send({
+      propertyIds: [101, 102],
+      sessionId: session.body.data.id,
+    });
+    const runId = createdRun.body.data.id;
+
+    const runDetail = await request(app).get(`/api/cloud-extraction/runs/${runId}`);
+
+    expect(runDetail.status).toBe(200);
+    expect(runDetail.body.success).toBe(true);
+    expect(runDetail.body.data.id).toBe(runId);
+    expect(runDetail.body.data.items).toHaveLength(2);
+    expect(runDetail.body.data.items[0].status).toBe('QUEUED');
+  });
 });

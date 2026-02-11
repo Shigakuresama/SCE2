@@ -4,8 +4,23 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 import { NotFoundError, ValidationError } from '../types/errors.js';
 import { encryptJson } from '../lib/encryption.js';
 import { config } from '../lib/config.js';
+import { logger } from '../lib/logger.js';
+import { processExtractionRun } from '../lib/cloud-extraction-worker.js';
+import { PlaywrightSCEAutomationClient } from '../lib/sce-automation/playwright-client.js';
 
 export const cloudExtractionRoutes = Router();
+
+let runLauncher = async (runId: number) => {
+  await processExtractionRun(runId, {
+    client: new PlaywrightSCEAutomationClient(),
+  });
+};
+
+export function setCloudExtractionRunLauncherForTests(
+  launcher: typeof runLauncher
+) {
+  runLauncher = launcher;
+}
 
 function parseSessionId(value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
@@ -167,5 +182,58 @@ cloudExtractionRoutes.post(
     });
 
     res.status(201).json({ success: true, data: run });
+  })
+);
+
+cloudExtractionRoutes.post(
+  '/runs/:id/start',
+  asyncHandler(async (req, res) => {
+    const runId = parseSessionId(Number(req.params.id));
+
+    const run = await prisma.extractionRun.findUnique({
+      where: { id: runId },
+      select: { id: true },
+    });
+
+    if (!run) {
+      throw new NotFoundError('ExtractionRun', runId);
+    }
+
+    void runLauncher(runId).catch((error) => {
+      logger.error('Cloud extraction run failed', {
+        runId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+    res.status(202).json({
+      success: true,
+      data: {
+        id: runId,
+        status: 'RUNNING',
+      },
+    });
+  })
+);
+
+cloudExtractionRoutes.get(
+  '/runs/:id',
+  asyncHandler(async (req, res) => {
+    const runId = parseSessionId(Number(req.params.id));
+
+    const run = await prisma.extractionRun.findUnique({
+      where: { id: runId },
+      include: {
+        items: {
+          orderBy: { id: 'asc' },
+        },
+      },
+    });
+
+    if (!run) {
+      throw new NotFoundError('ExtractionRun', runId);
+    }
+
+    res.json({ success: true, data: run });
   })
 );
