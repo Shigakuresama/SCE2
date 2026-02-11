@@ -19,18 +19,24 @@ This runbook covers deployment procedures, monitoring, common issues, and rollba
 
 Use this sequence for day-to-day operations:
 
-1. In webapp (`/`), select exact houses for the route.
-2. Run route extraction from extension so customer name/phone is written back to properties.
-3. Generate the route PDF from the same selected set (same property IDs used for extraction + PDF).
+1. Open webapp `/mobile-pack` (desktop or phone), select houses, and tap **Plan Route**.
+2. Tap **Generate PDF** to download the fillable QR route sheet with persisted ordered stops.
+3. Optional (desktop): run extension extraction first if you need fresh customer name/phone before PDF.
 4. In field, scan each QR from mobile-web and upload:
    - `BILL` image
    - `SIGNATURE` image
    - age/notes as needed
 5. Tap **Complete Visit** in mobile-web (enabled only when BILL + SIGNATURE exist and status is `READY_FOR_FIELD`).
-6. Back at office, open webapp `/field-ops`:
+6. Back at office/home, open webapp `/field-ops`:
    - filter missing bill/signature/age/notes
    - resolve gaps before submission
-7. Run extension submit automation on SCE website.
+7. Run extension submit automation on SCE website (desktop extension only).
+
+### Extension-only Boundaries
+
+- Customer extraction from SCE portal is extension-only.
+- Final SCE submission automation is extension-only.
+- Mobile/deployed flow supports route planning, fillable PDF generation, QR scan, field data, and document uploads.
 
 ### Expected Artifact Organization
 
