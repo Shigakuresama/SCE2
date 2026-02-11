@@ -10,6 +10,8 @@ import type {
   AddressInput,
   MobileRoutePlanRequest,
   MobileRoutePlanResponse,
+  ExtractionSession,
+  ExtractionRun,
 } from '../types';
 import { config, getCloudUrl } from './config';
 import { createAPIClient, APIError } from './api-client';
@@ -190,6 +192,50 @@ class SCE2API {
    */
   async getQueueStatus(): Promise<QueueStatus> {
     return this.request<QueueStatus>('/queue/status');
+  }
+
+  // ============= Cloud Extraction =============
+
+  async createExtractionSession(payload: {
+    label: string;
+    sessionStateJson: string;
+    expiresAt: string;
+  }): Promise<ExtractionSession> {
+    return this.request<ExtractionSession>('/cloud-extraction/sessions', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async listExtractionSessions(): Promise<ExtractionSession[]> {
+    return this.request<ExtractionSession[]>('/cloud-extraction/sessions');
+  }
+
+  async createCloudExtractionRun(payload: {
+    propertyIds: number[];
+    sessionId: number;
+  }): Promise<ExtractionRun> {
+    if (!Array.isArray(payload.propertyIds) || payload.propertyIds.length === 0) {
+      throw new Error('propertyIds must be a non-empty array');
+    }
+
+    return this.request<ExtractionRun>('/cloud-extraction/runs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async startCloudExtractionRun(runId: number): Promise<{ id: number; status: string }> {
+    return this.request<{ id: number; status: string }>(
+      `/cloud-extraction/runs/${runId}/start`,
+      {
+        method: 'POST',
+      }
+    );
+  }
+
+  async getCloudExtractionRun(runId: number): Promise<ExtractionRun> {
+    return this.request<ExtractionRun>(`/cloud-extraction/runs/${runId}`);
   }
 
   // ============= Health =============

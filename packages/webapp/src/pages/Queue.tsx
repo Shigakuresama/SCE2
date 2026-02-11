@@ -2,24 +2,39 @@ import React, { useState } from 'react';
 import { PropertyStatus } from '../types';
 import { QueueStatus } from '../components/QueueStatus';
 import { PropertyList } from '../components/PropertyList';
+import { CloudExtractionPanel } from '../components/CloudExtractionPanel';
 import { useApp } from '../contexts/AppContext';
 
 export const Queue: React.FC = () => {
-  const { properties, loading, errors, fetchProperties, clearError } = useApp();
+  const {
+    properties,
+    loading,
+    errors,
+    fetchProperties,
+    refreshQueueStatus,
+    clearError,
+  } = useApp();
   const [filter, setFilter] = useState<PropertyStatus | 'ALL'>('ALL');
 
   const filteredProperties = properties.filter((property) => {
     if (filter === 'ALL') return true;
     return property.status === filter;
   });
+  const pendingScrapeProperties = properties.filter(
+    (property) => property.status === PropertyStatus.PENDING_SCRAPE
+  );
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     clearError('properties');
-    fetchProperties();
+    await Promise.all([fetchProperties(), refreshQueueStatus()]);
   };
 
   const handleClearError = () => {
     clearError('properties');
+  };
+
+  const handleCloudRunSettled = async () => {
+    await Promise.all([fetchProperties(), refreshQueueStatus()]);
   };
 
   return (
@@ -33,7 +48,7 @@ export const Queue: React.FC = () => {
           </p>
         </div>
         <button
-          onClick={handleRefresh}
+          onClick={() => void handleRefresh()}
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
         >
           Refresh
@@ -80,6 +95,11 @@ export const Queue: React.FC = () => {
 
       {/* Queue Status */}
       <QueueStatus />
+
+      <CloudExtractionPanel
+        pendingProperties={pendingScrapeProperties}
+        onRunSettled={handleCloudRunSettled}
+      />
 
       {/* Filter */}
       <div className="flex items-center space-x-4">
