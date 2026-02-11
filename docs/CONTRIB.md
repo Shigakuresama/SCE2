@@ -240,6 +240,7 @@ cp packages/mobile-web/.env.example packages/mobile-web/.env
 | `UPLOAD_DIR` | Upload directory | ./uploads | ./uploads |
 | `ALLOWED_ORIGINS` | CORS allowed origins | localhost URLs | http://localhost:5173,... |
 | `SCE_BASE_URL` | SCE website URL | https://sce.dsmcentral.com | https://sce.dsmcentral.com |
+| `SCE_FORM_PATH` | SCE extraction entry path | /onsite/customer-search | /onsite/customer-search |
 | `SCRAPE_DELAY_MS` | Delay between scrapes | 2000 | 2000 |
 | `MAX_CONCURRENT_SCRAPES` | Max concurrent scrapes | 3 | 3 |
 | `SCE_AUTOMATION_ENABLED` | Enable server-side cloud extraction APIs | false | true |

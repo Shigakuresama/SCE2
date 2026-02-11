@@ -65,6 +65,8 @@ Render will automatically deploy all services:
    - `PORT` = `3333`
    - `ALLOWED_ORIGINS` = `https://sce2-webap.onrender.com,https://sce2-mobile.onrender.com`
    - `BASE_URL` = `https://sce2-cloud-server.onrender.com`
+   - `SCE_BASE_URL` = `https://sce.dsmcentral.com`
+   - `SCE_FORM_PATH` = `/onsite/customer-search`
    - `SCE_AUTOMATION_ENABLED` = `false` (default rollout-safe value)
    - `SCE_SESSION_ENCRYPTION_KEY` = `<32+ byte secret>`
    - `SCE_AUTOMATION_TIMEOUT_MS` = `45000`

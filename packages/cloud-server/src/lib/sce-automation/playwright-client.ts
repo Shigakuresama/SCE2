@@ -7,15 +7,49 @@ import type {
   SCEExtractionResult,
 } from './types.js';
 
+const ADDRESS_FULL_SELECTORS = [
+  'input[aria-label*="address" i]',
+  'input[name*="address" i]',
+  'input[placeholder*="address" i]',
+];
+
+const STREET_NUMBER_SELECTORS = [
+  'input[aria-label*="street number" i]',
+  'input[name*="streetNumber" i]',
+  'input[placeholder*="street number" i]',
+];
+
+const STREET_NAME_SELECTORS = [
+  'input[aria-label*="street name" i]',
+  'input[name*="streetName" i]',
+  'input[placeholder*="street name" i]',
+];
+
+const ZIP_SELECTORS = [
+  'input[aria-label*="zip" i]',
+  'input[name*="zip" i]',
+  'input[placeholder*="zip" i]',
+];
+
+const SEARCH_BUTTON_SELECTORS = [
+  'button:has-text("Search")',
+  'button[type="submit"]',
+  'input[type="submit"]',
+];
+
 const NAME_SELECTORS = [
   '[aria-label*="customer name" i]',
   'input[name*="customerName" i]',
+  '[data-field-name*="customerName" i]',
+  '.customer-name',
   'input[placeholder*="name" i]',
 ];
 
 const PHONE_SELECTORS = [
   '[aria-label*="phone" i]',
   'input[name*="phone" i]',
+  '[data-field-name*="phone" i]',
+  '.customer-phone',
   'input[type="tel"]',
 ];
 
@@ -42,6 +76,82 @@ async function firstValueFromSelectors(
   return pickFirstNonEmpty(values);
 }
 
+function resolveCustomerSearchUrl(): string {
+  const rawPath = config.sceFormPath.trim();
+  if (/^https?:\/\//i.test(rawPath)) {
+    return rawPath;
+  }
+
+  const normalizedPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  return new URL(normalizedPath, config.sceBaseUrl).toString();
+}
+
+function normalizePath(pathname: string): string {
+  return pathname.replace(/\/+$/, '').toLowerCase();
+}
+
+async function fillFirstMatchingSelector(
+  page: Page,
+  selectors: string[],
+  value: string
+): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    if ((await locator.count()) === 0) {
+      continue;
+    }
+
+    try {
+      await locator.fill(value);
+      return true;
+    } catch {
+      // try next selector
+    }
+  }
+
+  return false;
+}
+
+async function clickFirstMatchingSelector(page: Page, selectors: string[]): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    if ((await locator.count()) === 0) {
+      continue;
+    }
+
+    try {
+      await locator.click();
+      return true;
+    } catch {
+      // try next selector
+    }
+  }
+
+  return false;
+}
+
+async function hasLoginPrompt(page: Page): Promise<boolean> {
+  const url = page.url().toLowerCase();
+  if (url.includes('/auth/login')) {
+    return true;
+  }
+
+  const [loginCount, passwordCount] = await Promise.all([
+    page
+      .locator('input#login, input[name*="login" i], input[aria-label*="email" i]')
+      .count()
+      .catch(() => 0),
+    page.locator('input#password, input[type="password"]').count().catch(() => 0),
+  ]);
+
+  if (loginCount > 0 && passwordCount > 0) {
+    return true;
+  }
+
+  const bodyText = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
+  return /sign in|log in/.test(bodyText) && /email|password/.test(bodyText);
+}
+
 export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
   async extractCustomerData(
     address: SCEAutomationAddressInput,
@@ -55,29 +165,67 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
 
     try {
       page.setDefaultTimeout(config.sceAutomationTimeoutMs);
-      await page.goto(`${config.sceBaseUrl}/onsite`, { waitUntil: 'domcontentloaded' });
+      const targetUrl = resolveCustomerSearchUrl();
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(1200);
 
-      await page
-        .locator('input[aria-label*="address" i], input[name*="address" i], input[placeholder*="address" i]')
-        .first()
-        .fill(`${address.streetNumber} ${address.streetName}`)
-        .catch(() => {});
-      await page
-        .locator('input[aria-label*="zip" i], input[name*="zip" i], input[placeholder*="zip" i]')
-        .first()
-        .fill(address.zipCode)
-        .catch(() => {});
-      await page
-        .locator('button:has-text("Search"), button[type="submit"]')
-        .first()
-        .click()
-        .catch(() => {});
+      if (await hasLoginPrompt(page)) {
+        throw new Error(
+          `SCE login required for ${targetUrl}. Refresh session JSON from an authenticated dsmcentral login.`
+        );
+      }
+
+      const expectedPath = normalizePath(new URL(targetUrl).pathname);
+      const actualPath = normalizePath(new URL(page.url()).pathname);
+      if (actualPath !== expectedPath) {
+        throw new Error(
+          `Unexpected SCE page (${page.url()}). Expected ${targetUrl}. Login or account access may be missing.`
+        );
+      }
+
+      const fullAddress = `${address.streetNumber} ${address.streetName}`.trim();
+      const filledFullAddress = await fillFirstMatchingSelector(page, ADDRESS_FULL_SELECTORS, fullAddress);
+      if (!filledFullAddress) {
+        const [filledStreetNumber, filledStreetName] = await Promise.all([
+          fillFirstMatchingSelector(page, STREET_NUMBER_SELECTORS, address.streetNumber),
+          fillFirstMatchingSelector(page, STREET_NAME_SELECTORS, address.streetName),
+        ]);
+
+        if (!filledStreetNumber && !filledStreetName) {
+          throw new Error('Could not find SCE address fields on customer-search page. Check login and selectors.');
+        }
+      }
+
+      const filledZip = await fillFirstMatchingSelector(page, ZIP_SELECTORS, address.zipCode);
+      if (!filledZip) {
+        throw new Error('Could not find SCE zip field on customer-search page.');
+      }
+
+      const clickedSearch = await clickFirstMatchingSelector(page, SEARCH_BUTTON_SELECTORS);
+      if (!clickedSearch) {
+        throw new Error('Could not find SCE search button after filling address.');
+      }
+
+      await page.waitForTimeout(1200);
+
+      if (await hasLoginPrompt(page)) {
+        throw new Error('SCE session expired during search. Please refresh the session JSON.');
+      }
 
       const [customerName, customerPhone, customerEmail] = await Promise.all([
         firstValueFromSelectors(page, NAME_SELECTORS),
         firstValueFromSelectors(page, PHONE_SELECTORS),
         firstValueFromSelectors(page, EMAIL_SELECTORS),
       ]);
+
+      const hasAnyCustomerData = [customerName, customerPhone, customerEmail].some(
+        (value) => typeof value === 'string' && value.trim().length > 0
+      );
+      if (!hasAnyCustomerData) {
+        throw new Error(
+          'Customer data not found after search. Verify selectors and ensure the address exists in SCE.'
+        );
+      }
 
       return {
         customerName,

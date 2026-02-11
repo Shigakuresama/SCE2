@@ -70,6 +70,18 @@ export async function processExtractionRun(
           { storageStateJson: sessionStateJson }
         );
 
+        const hasExtractedCustomerData = [
+          extraction.customerName,
+          extraction.customerPhone,
+          extraction.customerEmail,
+        ].some((value) => typeof value === 'string' && value.trim().length > 0);
+
+        if (!hasExtractedCustomerData) {
+          throw new Error(
+            `No customer data extracted for property ${property.id}; keeping status as ${property.status}`
+          );
+        }
+
         await prisma.property.update({
           where: { id: property.id },
           data: {

@@ -59,6 +59,7 @@ Use this flow for server-side extraction without the extension:
 1. Confirm cloud extraction is enabled in cloud-server:
    - `SCE_AUTOMATION_ENABLED=true`
    - `SCE_SESSION_ENCRYPTION_KEY` is set (32+ byte secret)
+   - `SCE_FORM_PATH=/onsite/customer-search`
 2. Open webapp Queue page and use the **Cloud Extraction** panel.
 3. Create an encrypted session (label + expiry + storage-state JSON).
 4. Select the session, verify property IDs, then click **Run Cloud Extraction**.

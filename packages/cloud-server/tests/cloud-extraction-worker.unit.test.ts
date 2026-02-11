@@ -153,4 +153,63 @@ describe('Cloud Extraction Worker', () => {
     expect(failedRun.items[0].status).toBe('FAILED');
     expect(failedRun.items[0].error).toContain('Simulated extraction failure');
   });
+
+  it('treats empty extraction payloads as failures', async () => {
+    const { prisma } = await import('../src/lib/database.js');
+    const { encryptJson } = await import('../src/lib/encryption.js');
+    const { processExtractionRun } = await import('../src/lib/cloud-extraction-worker.js');
+
+    const property = await prisma.property.create({
+      data: {
+        addressFull: '789 Worker Empty St, Santa Ana, CA 92701',
+        streetNumber: '789',
+        streetName: 'Worker Empty St',
+        zipCode: '92701',
+      },
+    });
+
+    const session = await prisma.extractionSession.create({
+      data: {
+        label: 'Worker Empty Session',
+        encryptedStateJson: encryptJson('{"cookies":[]}', process.env.SCE_SESSION_ENCRYPTION_KEY!),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    const run = await prisma.extractionRun.create({
+      data: {
+        sessionId: session.id,
+        totalCount: 1,
+        items: {
+          create: [{ propertyId: property.id }],
+        },
+      },
+    });
+
+    await processExtractionRun(run.id, {
+      client: {
+        extractCustomerData: async () => ({
+          customerName: undefined,
+          customerPhone: undefined,
+          customerEmail: undefined,
+        }),
+      },
+    });
+
+    const unchangedProperty = await prisma.property.findUniqueOrThrow({
+      where: { id: property.id },
+    });
+    const failedRun = await prisma.extractionRun.findUniqueOrThrow({
+      where: { id: run.id },
+      include: { items: true },
+    });
+
+    expect(unchangedProperty.status).toBe('PENDING_SCRAPE');
+    expect(unchangedProperty.dataExtracted).toBe(false);
+    expect(failedRun.processedCount).toBe(1);
+    expect(failedRun.successCount).toBe(0);
+    expect(failedRun.failureCount).toBe(1);
+    expect(failedRun.items[0].status).toBe('FAILED');
+    expect(failedRun.items[0].error).toContain('No customer data extracted');
+  });
 });

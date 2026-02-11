@@ -27,6 +27,7 @@ export const config = {
 
   // SCE Website
   sceBaseUrl: process.env.SCE_BASE_URL || 'https://sce.dsmcentral.com',
+  sceFormPath: process.env.SCE_FORM_PATH || '/onsite/customer-search',
 
   // Scraping
   scrapeDelayMs: parseInt(process.env.SCRAPE_DELAY_MS || '2000'),
