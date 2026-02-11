@@ -121,7 +121,23 @@ export interface Route {
   updatedAt: Date;
   name: string;
   description: string | null;
+  orderedPropertyIdsJson?: string | null;
   properties?: Property[];
+}
+
+export interface MobileRoutePlanRequest {
+  name: string;
+  propertyIds: number[];
+  description?: string;
+  startLat?: number;
+  startLon?: number;
+}
+
+export interface MobileRoutePlanResponse {
+  routeId: number;
+  orderedPropertyIds: number[];
+  orderedPropertyIdsJson: string | null;
+  properties: Property[];
 }
 
 export interface ApiResponse<T> {

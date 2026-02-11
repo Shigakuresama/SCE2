@@ -8,6 +8,8 @@ import type {
   Route,
   QueueStatus,
   AddressInput,
+  MobileRoutePlanRequest,
+  MobileRoutePlanResponse,
 } from '../types';
 import { config, getCloudUrl } from './config';
 import { createAPIClient, APIError } from './api-client';
@@ -166,6 +168,18 @@ class SCE2API {
     return this.request<Route>('/routes', {
       method: 'POST',
       body: JSON.stringify({ name, description }),
+    });
+  }
+
+  /**
+   * Create mobile route plan with persisted optimized order
+   */
+  async createMobileRoutePlan(
+    payload: MobileRoutePlanRequest
+  ): Promise<MobileRoutePlanResponse> {
+    return this.request<MobileRoutePlanResponse>('/routes/mobile-plan', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   }
 
