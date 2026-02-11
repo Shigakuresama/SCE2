@@ -14,7 +14,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "vitest run"
   },
   "dependencies": {
     "@prisma/client": "^5.9.1",
@@ -29,8 +29,11 @@
     "winston": "^3.19.0"
   },
   "devDependencies": {
+    "@types/supertest": "^6.0.2",
     "prisma": "^5.9.1",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "supertest": "^7.0.0",
+    "vitest": "^1.6.1"
   }
 }
