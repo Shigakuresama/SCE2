@@ -31,6 +31,11 @@ export const config = {
   // Scraping
   scrapeDelayMs: parseInt(process.env.SCRAPE_DELAY_MS || '2000'),
   maxConcurrentScrapes: parseInt(process.env.MAX_CONCURRENT_SCRAPES || '3'),
+
+  // Cloud extraction automation
+  sceAutomationEnabled: process.env.SCE_AUTOMATION_ENABLED === 'true',
+  sceSessionEncryptionKey: process.env.SCE_SESSION_ENCRYPTION_KEY || '',
+  sceAutomationTimeoutMs: parseInt(process.env.SCE_AUTOMATION_TIMEOUT_MS || '45000'),
 } as const;
 
 export type Config = typeof config;

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { prisma } from '../lib/database.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { NotFoundError, ValidationError } from '../types/errors.js';
+import { encryptJson } from '../lib/encryption.js';
+import { config } from '../lib/config.js';
 
 export const cloudExtractionRoutes = Router();
 
@@ -22,6 +24,109 @@ function parsePropertyIds(value: unknown): number[] {
 
   return value as number[];
 }
+
+function parseSessionLabel(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new ValidationError('label is required and must be a string');
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new ValidationError('label cannot be empty');
+  }
+  if (trimmed.length > 200) {
+    throw new ValidationError('label must be 200 characters or less');
+  }
+  return trimmed;
+}
+
+function parseSessionStateJson(value: unknown): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ValidationError('sessionStateJson is required and must be a JSON string');
+  }
+
+  try {
+    JSON.parse(value);
+  } catch {
+    throw new ValidationError('sessionStateJson must be valid JSON');
+  }
+
+  return value;
+}
+
+function parseExpiration(value: unknown): Date {
+  if (typeof value !== 'string') {
+    throw new ValidationError('expiresAt is required and must be an ISO date string');
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new ValidationError('expiresAt must be a valid ISO date string');
+  }
+
+  if (parsed.getTime() <= Date.now()) {
+    throw new ValidationError('expiresAt must be in the future');
+  }
+
+  return parsed;
+}
+
+function requireEncryptionKey(): string {
+  const key = config.sceSessionEncryptionKey?.trim();
+  if (!key) {
+    throw new ValidationError('SCE session encryption key is not configured');
+  }
+
+  return key;
+}
+
+cloudExtractionRoutes.post(
+  '/sessions',
+  asyncHandler(async (req, res) => {
+    const label = parseSessionLabel(req.body?.label);
+    const sessionStateJson = parseSessionStateJson(req.body?.sessionStateJson);
+    const expiresAt = parseExpiration(req.body?.expiresAt);
+    const encryptionKey = requireEncryptionKey();
+    const encryptedStateJson = encryptJson(sessionStateJson, encryptionKey);
+
+    const session = await prisma.extractionSession.create({
+      data: {
+        label,
+        encryptedStateJson,
+        expiresAt,
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        updatedAt: true,
+        label: true,
+        expiresAt: true,
+        isActive: true,
+      },
+    });
+
+    res.status(201).json({ success: true, data: session });
+  })
+);
+
+cloudExtractionRoutes.get(
+  '/sessions',
+  asyncHandler(async (req, res) => {
+    const sessions = await prisma.extractionSession.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        createdAt: true,
+        updatedAt: true,
+        label: true,
+        expiresAt: true,
+        isActive: true,
+      },
+    });
+
+    res.json({ success: true, data: sessions });
+  })
+);
 
 cloudExtractionRoutes.post(
   '/runs',
