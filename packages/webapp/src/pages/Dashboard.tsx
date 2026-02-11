@@ -10,7 +10,15 @@ import { api } from '../lib/api';
 import { searchAddress, extractStreetNumber, extractStreetName, extractZipCode } from '../lib/geocoding';
 
 export const Dashboard: React.FC = () => {
-  const { properties, loading, errors, fetchProperties, clearError, selectedProperties } =
+  const {
+    properties,
+    loading,
+    errors,
+    fetchProperties,
+    clearError,
+    selectedProperties,
+    setSelectedProperties,
+  } =
     useApp();
   const [filter, setFilter] = useState<PropertyStatus | 'ALL'>('ALL');
   const [inputMode, setInputMode] = useState<'text' | 'map'>('text');
@@ -273,6 +281,8 @@ export const Dashboard: React.FC = () => {
         <AddressInputComponent onSuccess={handleQueueSuccess} />
       ) : (
         <MapLayout
+          selectedProperties={selectedProperties}
+          setSelectedProperties={setSelectedProperties}
           onAddressesSelected={handleAddressesFromMap}
           existingProperties={properties}
         />

@@ -133,6 +133,8 @@ async function reverseGeocode(lat: number, lng: number): Promise<AddressInput | 
 }
 
 interface MapLayoutProps {
+  selectedProperties: Property[];
+  setSelectedProperties: React.Dispatch<React.SetStateAction<Property[]>>;
   onAddressesSelected: (addresses: AddressInput[]) => void;
   existingProperties?: Property[];
   properties?: Property[];
@@ -360,6 +362,8 @@ function MapController({
 }
 
 export const MapLayout: React.FC<MapLayoutProps> = ({
+  selectedProperties,
+  setSelectedProperties,
   onAddressesSelected,
   existingProperties = [],
   properties: propList = [],
@@ -380,9 +384,6 @@ export const MapLayout: React.FC<MapLayoutProps> = ({
   const [clickMarkers, setClickMarkers] = useState<L.Marker[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
-
-  // Address selection state
-  const [selectedProperties, setSelectedProperties] = useState<Property[]>([]);
 
   // Handler for when addresses are selected via map drawing or search
   // Must be defined before handleFetchAddresses since it depends on this
