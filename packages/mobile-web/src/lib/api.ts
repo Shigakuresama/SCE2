@@ -22,7 +22,7 @@ class MobileAPI {
   // Fetch property data for mobile view
   async fetchPropertyData(propertyId: number): Promise<MobilePropertyData> {
     return this.request<MobilePropertyData>(
-      `/api/properties/${propertyId}/mobile-data`
+      `/properties/${propertyId}/mobile-data`
     );
   }
 
@@ -31,7 +31,7 @@ class MobileAPI {
     propertyId: number,
     data: FieldDataSubmission
   ): Promise<MobilePropertyData> {
-    return this.request<MobilePropertyData>(`/api/properties/${propertyId}`, {
+    return this.request<MobilePropertyData>(`/properties/${propertyId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
@@ -43,7 +43,7 @@ class MobileAPI {
     upload: DocumentUpload
   ): Promise<{ id: number; url: string }> {
     return this.request<{ id: number; url: string }>(
-      `/api/properties/${propertyId}/documents`,
+      `/properties/${propertyId}/documents`,
       {
         method: 'POST',
         body: JSON.stringify(upload),
