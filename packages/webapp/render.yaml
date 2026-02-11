@@ -1,7 +1,7 @@
 services:
   # Webapp (Static React App)
   - type: web
-    name: sce2-webapp
+    name: sce2-webap
     runtime: static
     buildCommand: npm install --legacy-peer-deps && npm run build
     staticPublishPath: ./dist

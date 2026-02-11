@@ -14,6 +14,8 @@ assert.match(typesSource, /export interface MobileRoutePlanResponse/);
 assert.match(apiSource, /async createMobileRoutePlan\(/);
 assert.match(apiSource, /\/routes\/mobile-plan/);
 assert.match(appSource, /path="\/mobile-pack"/);
+assert.match(appSource, /window\.location\.hash\.startsWith\('#\/'\)/);
+assert.match(appSource, /navigate\(targetPath, \{ replace: true \}\)/);
 assert.match(navSource, /path: '\/mobile-pack'/);
 assert.match(pageSource, /createMobileRoutePlan/);
 assert.match(pageSource, /generateRouteSheet/);
