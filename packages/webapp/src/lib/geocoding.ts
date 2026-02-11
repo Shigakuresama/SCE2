@@ -21,8 +21,13 @@ function extractFiveDigitZip(value: string | undefined): string | null {
   if (!value) {
     return null;
   }
-  const match = value.match(/\b(\d{5})(?:-\d{4})?\b/);
-  return match ? match[1] : null;
+  // Prefer the last ZIP-like token so queries like
+  // "22003 seine 90716" treat 90716 as ZIP (not house number 22003).
+  const matches = Array.from(value.matchAll(/\b(\d{5})(?:-\d{4})?\b/g));
+  if (matches.length === 0) {
+    return null;
+  }
+  return matches[matches.length - 1]?.[1] ?? null;
 }
 
 /**
