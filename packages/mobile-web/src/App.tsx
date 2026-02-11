@@ -8,6 +8,7 @@ import { CompleteVisitButton } from './components/CompleteVisitButton';
 import { QRScanner } from './components/QRScanner';
 import type { MobilePropertyData } from './types';
 import { mobileAPI } from './lib/api';
+import { config } from './lib/config';
 import './index.css';
 
 function App() {
@@ -90,6 +91,14 @@ function App() {
         <div className="absolute top-0 left-0 right-0 bg-blue-600 text-white p-4 z-10">
           <h1 className="text-xl font-bold">Scan QR Code</h1>
           <p className="text-sm opacity-90">Point camera at property QR code</p>
+          <a
+            href={`${config.WEBAPP_BASE_URL}/mobile-pack`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-block mt-3 rounded bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800"
+          >
+            Create Route PDF
+          </a>
         </div>
         <div className="h-full">
           <QRScanner onScan={handleScan} onError={handleScanError} />
