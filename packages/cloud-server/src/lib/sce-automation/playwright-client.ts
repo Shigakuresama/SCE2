@@ -84,6 +84,38 @@ const EMAIL_SELECTORS = [
   'input[type="email"]',
 ];
 
+async function waitForAnySelector(
+  page: Page,
+  selectors: string[],
+  timeoutMs: number
+): Promise<void> {
+  const waiters = selectors.map((selector) =>
+    page
+      .locator(selector)
+      .first()
+      .waitFor({ state: 'visible', timeout: timeoutMs })
+      .then(() => selector)
+  );
+
+  try {
+    await Promise.any(waiters);
+  } catch {
+    throw new Error(`No selector matched in ${timeoutMs}ms`);
+  }
+}
+
+async function waitForLoginForm(page: Page): Promise<void> {
+  const timeoutMs = Math.min(Math.max(config.sceAutomationTimeoutMs, 2000), 15000);
+  try {
+    await Promise.all([
+      waitForAnySelector(page, LOGIN_USERNAME_SELECTORS, timeoutMs),
+      waitForAnySelector(page, LOGIN_PASSWORD_SELECTORS, timeoutMs),
+    ]);
+  } catch {
+    throw new Error('Could not find SCE login fields on the login page.');
+  }
+}
+
 async function firstValueFromSelectors(
   page: Page,
   selectors: string[]
@@ -210,6 +242,7 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
 
       const loginUrl = resolveLoginUrl();
       await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
+      await waitForLoginForm(page);
 
       const username = credentials.username.trim();
       const password = credentials.password;
@@ -232,6 +265,10 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
       if (!clickedLogin) {
         throw new Error('Could not find SCE login submit button.');
       }
+      await Promise.race([
+        page.waitForLoadState('networkidle', { timeout: 6000 }),
+        page.waitForTimeout(2000),
+      ]).catch(() => undefined);
 
       const targetUrl = resolveCustomerSearchUrl();
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
