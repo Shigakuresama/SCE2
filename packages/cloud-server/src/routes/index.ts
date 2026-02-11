@@ -7,6 +7,7 @@ import { queueRoutes } from './queue.js';
 import { uploadRoutes } from './uploads.js';
 import { routeRoutes } from './routes.js';
 import { zillowRoutes } from './zillow.js';
+import { cloudExtractionRoutes } from './cloud-extraction.js';
 import { prisma } from '../lib/database.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { NotFoundError, ValidationError } from '../types/errors.js';
@@ -45,6 +46,7 @@ apiRouter.use('/queue', queueRoutes);
 apiRouter.use('/uploads', uploadRoutes);
 apiRouter.use('/routes', routeRoutes);
 apiRouter.use('/zillow', zillowRoutes);
+apiRouter.use('/cloud-extraction', cloudExtractionRoutes);
 
 // Mobile base64 document upload route
 apiRouter.post(
