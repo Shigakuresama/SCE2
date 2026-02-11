@@ -156,6 +156,37 @@ export interface QueueStatus {
   failed: number;
 }
 
+export interface ExtractionSession {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  label: string;
+  expiresAt: string;
+  isActive: boolean;
+}
+
+export interface ExtractionRunItem {
+  id: number;
+  propertyId: number;
+  status: string;
+  error: string | null;
+}
+
+export interface ExtractionRun {
+  id: number;
+  createdAt?: string;
+  updatedAt?: string;
+  status: string;
+  totalCount: number;
+  processedCount: number;
+  successCount: number;
+  failureCount: number;
+  sessionId: number;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  items?: ExtractionRunItem[];
+}
+
 export interface PropertyFilters {
   status?: PropertyStatus;
   city?: string;

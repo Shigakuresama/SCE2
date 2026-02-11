@@ -34,7 +34,9 @@ Use this sequence for day-to-day operations:
 
 ### Extension-only Boundaries
 
-- Customer extraction from SCE portal is extension-only.
+- Customer extraction from SCE portal supports two paths:
+  - cloud extraction (webapp operator panel) when `SCE_AUTOMATION_ENABLED=true`
+  - extension extraction fallback when cloud extraction is disabled or unstable
 - Final SCE submission automation is extension-only.
 - Mobile/deployed flow supports route planning, fillable PDF generation, QR scan, field data, and document uploads.
 
@@ -49,6 +51,30 @@ Use this sequence for day-to-day operations:
 - `PENDING_SCRAPE` → `READY_FOR_FIELD` after extraction.
 - `READY_FOR_FIELD` → `VISITED` only through `POST /api/properties/:id/complete-visit`.
 - Completion requires both BILL + SIGNATURE documents; otherwise API returns conflict.
+
+### Cloud Extraction Operations (Feature-Flagged)
+
+Use this flow for server-side extraction without the extension:
+
+1. Confirm cloud extraction is enabled in cloud-server:
+   - `SCE_AUTOMATION_ENABLED=true`
+   - `SCE_SESSION_ENCRYPTION_KEY` is set (32+ byte secret)
+2. Open webapp Queue page and use the **Cloud Extraction** panel.
+3. Create an encrypted session (label + expiry + storage-state JSON).
+4. Select the session, verify property IDs, then click **Run Cloud Extraction**.
+5. Monitor run status and counters:
+   - `QUEUED` / `RUNNING` / `COMPLETED` / `COMPLETED_WITH_ERRORS` / `FAILED`
+6. Confirm successful properties moved to `READY_FOR_FIELD`.
+7. For failed items, keep them in `PENDING_SCRAPE` and retry in another run after fixing selector/session issues.
+
+### Cloud Extraction Rollback (Extension Fallback)
+
+If cloud extraction becomes unstable:
+
+1. Set `SCE_AUTOMATION_ENABLED=false` on cloud-server and redeploy.
+2. Continue extraction with the desktop extension flow.
+3. Keep submission automation on extension path (unchanged).
+4. Re-enable cloud extraction only after validating on a small batch (2-3 properties).
 
 ---
 

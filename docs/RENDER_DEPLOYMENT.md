@@ -57,7 +57,7 @@ Render will automatically deploy all services:
 4. Configure:
    - **Name**: `sce2-cloud-server`
    - **Environment**: `Node`
-   - **Build Command**: `cd packages/cloud-server && npm install && npm run build`
+   - **Build Command**: `cd packages/cloud-server && npm install && npm run build && npx playwright install chromium`
    - **Start Command**: `cd packages/cloud-server && npm run db:push && npm start`
    - **Plan**: **Free**
 5. Add Environment Variables:
@@ -65,6 +65,10 @@ Render will automatically deploy all services:
    - `PORT` = `3333`
    - `ALLOWED_ORIGINS` = `https://sce2-webap.onrender.com,https://sce2-mobile.onrender.com`
    - `BASE_URL` = `https://sce2-cloud-server.onrender.com`
+   - `SCE_AUTOMATION_ENABLED` = `false` (default rollout-safe value)
+   - `SCE_SESSION_ENCRYPTION_KEY` = `<32+ byte secret>`
+   - `SCE_AUTOMATION_TIMEOUT_MS` = `45000`
+   - `PLAYWRIGHT_BROWSERS_PATH` = `0`
    - Connect the `sce2-db` database as `DATABASE_URL`
 6. Click **"Deploy Web Service"**
 
@@ -172,6 +176,13 @@ Check the **"Logs"** tab in your service. Common issues:
 1. Check **"Environment"** variables are correct
 2. Check **"Logs"** for errors
 3. Ensure database is deployed and connected
+
+### Cloud Extraction Fails On Render
+
+1. Confirm `SCE_AUTOMATION_ENABLED=true` only when you are actively rolling out cloud extraction.
+2. Verify `SCE_SESSION_ENCRYPTION_KEY` is set and non-empty.
+3. Confirm build logs include `npx playwright install chromium`.
+4. If Playwright launch errors continue, set `SCE_AUTOMATION_ENABLED=false` and use extension fallback until runtime is fixed.
 
 ### API Returns 403/CORS Errors
 

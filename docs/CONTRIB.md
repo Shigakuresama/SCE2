@@ -242,6 +242,9 @@ cp packages/mobile-web/.env.example packages/mobile-web/.env
 | `SCE_BASE_URL` | SCE website URL | https://sce.dsmcentral.com | https://sce.dsmcentral.com |
 | `SCRAPE_DELAY_MS` | Delay between scrapes | 2000 | 2000 |
 | `MAX_CONCURRENT_SCRAPES` | Max concurrent scrapes | 3 | 3 |
+| `SCE_AUTOMATION_ENABLED` | Enable server-side cloud extraction APIs | false | true |
+| `SCE_SESSION_ENCRYPTION_KEY` | Encryption key for session vault payloads | (empty) | 32+ byte secret |
+| `SCE_AUTOMATION_TIMEOUT_MS` | Timeout budget for SCE automation actions | 45000 | 45000 |
 
 #### Cloud Server `.env`
 
@@ -305,6 +308,21 @@ npm run db:generate
 ### Test Structure
 
 ```
+
+### Cloud Extraction Change Checklist
+
+When touching cloud extraction (`/api/cloud-extraction` + webapp panel), run:
+
+```bash
+npm run test --workspace=packages/cloud-server -- tests/cloud-extraction-runs.contract.test.ts tests/cloud-extraction-worker.unit.test.ts tests/sce-automation-selectors.unit.test.ts
+npx tsx packages/webapp/tests/cloud-extraction.integration.ts
+npm run build --workspace=packages/cloud-server
+npm run build --workspace=packages/webapp
+```
+
+Feature-flag expectation:
+- Keep `SCE_AUTOMATION_ENABLED=false` by default in production until rollout validation completes.
+- Maintain extension fallback readiness for extraction and submission operations.
 packages/
 ├── cloud-server/
 │   └── (tests not yet implemented)
