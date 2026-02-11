@@ -86,6 +86,57 @@ model Route {
   @@index([createdAt])
 }
 
+model ExtractionSession {
+  id                 Int             @id @default(autoincrement())
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  label              String
+  encryptedStateJson String
+  expiresAt          DateTime
+  isActive           Boolean         @default(true)
+  runs               ExtractionRun[]
+
+  @@index([isActive])
+  @@index([expiresAt])
+}
+
+model ExtractionRun {
+  id             Int                 @id @default(autoincrement())
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  status         String              @default("QUEUED")
+  totalCount     Int                 @default(0)
+  processedCount Int                 @default(0)
+  successCount   Int                 @default(0)
+  failureCount   Int                 @default(0)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  errorSummary   String?
+
+  sessionId      Int
+  session        ExtractionSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  items          ExtractionRunItem[]
+
+  @@index([status])
+  @@index([sessionId])
+}
+
+model ExtractionRunItem {
+  id         Int           @id @default(autoincrement())
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  runId      Int
+  run        ExtractionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  propertyId Int
+  status     String        @default("QUEUED")
+  error      String?
+
+  @@index([runId])
+  @@index([propertyId])
+  @@index([status])
+}
+
 // Property Status values (SQLite doesn't support enums)
 // Valid values: PENDING_SCRAPE, READY_FOR_FIELD, VISITED, READY_FOR_SUBMISSION, COMPLETE, FAILED
 
