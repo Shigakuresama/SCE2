@@ -62,6 +62,9 @@ Use this flow for server-side extraction without the extension:
    - `SCE_FORM_PATH=/onsite/customer-search`
 2. Open webapp Queue page and use the **Cloud Extraction** panel.
 3. Create an encrypted session (label + expiry + storage-state JSON).
+   - Capture this JSON from an authenticated browser session on
+     `https://sce.dsmcentral.com/onsite/customer-search` (not just `sce.com` marketing pages).
+   - If runs fail with `Unexpected SCE page .../onsite/`, refresh login and regenerate the session JSON.
 4. Select the session, verify property IDs, then click **Run Cloud Extraction**.
 5. Monitor run status and counters:
    - `QUEUED` / `RUNNING` / `COMPLETED` / `COMPLETED_WITH_ERRORS` / `FAILED`
