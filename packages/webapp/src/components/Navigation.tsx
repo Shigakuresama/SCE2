@@ -12,6 +12,7 @@ export const Navigation: React.FC = () => {
     { path: '/', label: 'Dashboard', icon: '🏠' },
     { path: '/properties', label: 'Properties', icon: '📋' },
     { path: '/queue', label: 'Queue', icon: '📬' },
+    { path: '/field-ops', label: 'Field Ops', icon: '🧾' },
     { path: '/settings', label: 'Settings', icon: '⚙️' },
   ];
 

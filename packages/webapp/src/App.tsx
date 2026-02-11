@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Properties } from './pages/Properties';
 import { Queue } from './pages/Queue';
 import { Settings } from './pages/Settings';
+import { FieldOpsReview } from './pages/FieldOpsReview';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/properties" element={<Properties />} />
             <Route path="/queue" element={<Queue />} />
+            <Route path="/field-ops" element={<FieldOpsReview />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </Layout>

@@ -3,6 +3,7 @@
 
 import type {
   Property,
+  PropertyStatus,
   PropertyFilters,
   Route,
   QueueStatus,
@@ -49,6 +50,23 @@ class SCE2API {
 
     const query = params.toString() ? `?${params}` : '';
     return this.request<Property[]>(`/properties${query}`);
+  }
+
+  /**
+   * Get field-ops focused properties (VISITED, READY_FOR_SUBMISSION, COMPLETE)
+   */
+  async getFieldOpsProperties(): Promise<Property[]> {
+    const statuses: PropertyStatus[] = [
+      'VISITED' as PropertyStatus,
+      'READY_FOR_SUBMISSION' as PropertyStatus,
+      'COMPLETE' as PropertyStatus,
+    ];
+
+    const results = await Promise.all(
+      statuses.map((status) => this.getProperties({ status }))
+    );
+
+    return results.flat();
   }
 
   /**
