@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/database.js';
-import { orderPropertiesByNearestNeighbor } from '../lib/route-planner.js';
+import { orderPropertiesByNearestNeighbor, type StartCoordinate } from '../lib/route-planner.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { NotFoundError, ValidationError } from '../types/errors.js';
 
@@ -105,7 +105,7 @@ function isFiniteNumber(value: unknown): value is number {
 function validateStartCoordinate(
   startLat: unknown,
   startLon: unknown
-): { latitude: number; longitude: number } | null {
+): StartCoordinate | null {
   const hasStartLat = startLat !== undefined && startLat !== null;
   const hasStartLon = startLon !== undefined && startLon !== null;
 
@@ -123,10 +123,10 @@ function validateStartCoordinate(
   };
 }
 
-function hasValidPropertyCoordinate(property: {
+function hasValidPropertyCoordinate<T extends {
   latitude: number | null;
   longitude: number | null;
-}): property is {
+}>(property: T): property is T & {
   latitude: number;
   longitude: number;
 } {
@@ -244,7 +244,7 @@ routeRoutes.post(
     }
 
     const fallbackStartProperty = propertiesInInputOrder.find(hasValidPropertyCoordinate);
-    const startCoordinate = requestedStartCoordinate
+    const startCoordinate: StartCoordinate | null = requestedStartCoordinate
       ?? (fallbackStartProperty
         ? { latitude: fallbackStartProperty.latitude, longitude: fallbackStartProperty.longitude }
         : null);
