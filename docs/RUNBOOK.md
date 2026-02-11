@@ -62,8 +62,11 @@ Use this flow for server-side extraction without the extension:
    - `SCE_FORM_PATH=/onsite/customer-search`
 2. Open webapp Queue page and use the **Cloud Extraction** panel.
 3. Create an encrypted session (label + expiry + storage-state JSON).
-   - Capture this JSON from an authenticated browser session on
-     `https://sce.dsmcentral.com/onsite/customer-search` (not just `sce.com` marketing pages).
+   - Start login from:
+     `https://sce-trade-ally-community.my.site.com/tradeally/s/login/?ec=302&inst=Vt&startURL=%2Ftradeally%2Fsite%2FSiteLogin.apexp`
+   - After login succeeds, open:
+     `https://sce.dsmcentral.com/onsite/customer-search`
+   - Capture storage-state JSON only after you can see the authenticated SCE flow (not `sce.com` marketing pages).
    - If runs fail with `Unexpected SCE page .../onsite/`, refresh login and regenerate the session JSON.
 4. Select the session, verify property IDs, then click **Run Cloud Extraction**.
 5. Monitor run status and counters:
