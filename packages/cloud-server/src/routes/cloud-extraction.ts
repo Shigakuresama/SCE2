@@ -201,8 +201,22 @@ cloudExtractionRoutes.post(
     const password = parseScePassword(req.body?.password);
     const expiresAt = parseExpiration(req.body?.expiresAt);
     const encryptionKey = requireEncryptionKey();
+    let sessionStateJson: string;
+    try {
+      sessionStateJson = await sessionStateFactory({ username, password });
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Unknown login bridge failure while creating session state.';
 
-    const sessionStateJson = await sessionStateFactory({ username, password });
+      logger.warn('Cloud extraction login bridge failed', {
+        username,
+        reason,
+      });
+
+      throw new ValidationError(`Unable to create session from SCE login: ${reason}`);
+    }
     const encryptedStateJson = encryptJson(sessionStateJson, encryptionKey);
 
     const session = await prisma.extractionSession.create({

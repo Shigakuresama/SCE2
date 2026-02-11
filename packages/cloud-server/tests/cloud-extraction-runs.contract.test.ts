@@ -149,6 +149,32 @@ describe('Cloud Extraction Runs Contract', () => {
     expect(res.body.error.message).toContain('username');
   });
 
+  it('returns actionable error when login bridge automation fails', async () => {
+    const { setCloudExtractionSessionStateFactoryForTests } = await import(
+      '../src/routes/cloud-extraction.js'
+    );
+    setCloudExtractionSessionStateFactoryForTests(async () => {
+      throw new Error('Could not find SCE login fields on the login page.');
+    });
+
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const res = await request(app)
+      .post('/api/cloud-extraction/sessions/login-bridge')
+      .send({
+        label: 'Failed Login Bridge Session',
+        username: 'first.last@sce.tac',
+        password: 'super-secret-password',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toContain('Unable to create session from SCE login');
+    expect(res.body.error.message).toContain('Could not find SCE login fields');
+  });
+
   it('rejects expired session payloads', async () => {
     const { buildTestApp } = await import('./helpers/test-app.js');
     const app = await buildTestApp();
