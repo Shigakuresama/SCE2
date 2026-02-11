@@ -4,8 +4,10 @@ import { PropertyInfo } from './components/PropertyInfo';
 import { FieldDataForm } from './components/FieldDataForm';
 import { PhotoCapture } from './components/PhotoCapture';
 import { SignaturePad } from './components/SignaturePad';
+import { CompleteVisitButton } from './components/CompleteVisitButton';
 import { QRScanner } from './components/QRScanner';
 import type { MobilePropertyData } from './types';
+import { mobileAPI } from './lib/api';
 import './index.css';
 
 function App() {
@@ -56,10 +58,30 @@ function App() {
     setPropertyId(null);
     setShowScanner(true);
     setError(null);
+    setCurrentProperty(null);
+  };
+
+  const refreshProperty = async (targetPropertyId: number) => {
+    try {
+      const refreshedProperty = await mobileAPI.fetchPropertyData(targetPropertyId);
+      setCurrentProperty(refreshedProperty);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to refresh property');
+    }
   };
 
   const handlePropertyUpdate = (updatedProperty: MobilePropertyData) => {
-    setCurrentProperty(updatedProperty);
+    // Optimistic update for instant feedback, then sync with canonical API state.
+    setCurrentProperty((previousProperty) => ({
+      ...(previousProperty ?? {}),
+      ...updatedProperty,
+    }) as MobilePropertyData);
+
+    void refreshProperty(updatedProperty.id);
+  };
+
+  const handleDocumentUpdate = (targetPropertyId: number) => {
+    void refreshProperty(targetPropertyId);
   };
 
   if (showScanner) {
@@ -146,12 +168,21 @@ function App() {
                   propertyId={displayProperty.id}
                   docType="BILL"
                   label="Photo: Utility Bill"
+                  onSuccess={() => handleDocumentUpdate(displayProperty.id)}
                 />
 
                 <SignaturePad
                   propertyId={displayProperty.id}
                   docType="SIGNATURE"
                   label="Customer Signature"
+                  onSuccess={() => handleDocumentUpdate(displayProperty.id)}
+                />
+
+                <CompleteVisitButton
+                  propertyId={displayProperty.id}
+                  documents={displayProperty.documents || []}
+                  status={displayProperty.status}
+                  onCompleted={handlePropertyUpdate}
                 />
               </div>
             </>

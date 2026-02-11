@@ -50,6 +50,16 @@ class MobileAPI {
       }
     );
   }
+
+  // Mark visit complete after required documents are uploaded
+  async completeVisit(propertyId: number): Promise<MobilePropertyData> {
+    return this.request<MobilePropertyData>(
+      `/properties/${propertyId}/complete-visit`,
+      {
+        method: 'POST',
+      }
+    );
+  }
 }
 
 // Singleton instance
