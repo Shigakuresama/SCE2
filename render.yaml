@@ -21,7 +21,7 @@ services:
       - key: DATABASE_URL
         value: file:./dev.sqlite
       - key: ALLOWED_ORIGINS
-        value: https://sce2-webapp.onrender.com,https://sce2-mobile.onrender.com
+        value: https://sce2-webap.onrender.com,https://sce2-webapp.onrender.com,https://sce2-mobile.onrender.com
       - key: BASE_URL
         value: https://sce2-cloud-server.onrender.com
       - key: SCRAPER_API_KEY
@@ -65,6 +65,8 @@ services:
     envVars:
       - key: VITE_API_BASE_URL
         value: https://sce2-cloud-server.onrender.com
+      - key: VITE_WEBAPP_BASE_URL
+        value: https://sce2-webap.onrender.com
     routes:
       - type: rewrite
         src: /.*

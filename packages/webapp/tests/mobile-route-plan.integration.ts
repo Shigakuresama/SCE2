@@ -17,5 +17,9 @@ assert.match(appSource, /path="\/mobile-pack"/);
 assert.match(navSource, /path: '\/mobile-pack'/);
 assert.match(pageSource, /createMobileRoutePlan/);
 assert.match(pageSource, /generateRouteSheet/);
+assert.match(
+  pageSource,
+  /useEffect\(\(\) => \{[\s\S]*setPlannedRoute\(null\);[\s\S]*\}, \[routeName, description, startLat, startLon, selectedPropertyIds\]\);/
+);
 
 console.log('mobile-route-plan.integration.ts: PASS');

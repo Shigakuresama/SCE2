@@ -84,6 +84,11 @@ export const MobileRoutePack: React.FC = () => {
     void loadProperties();
   }, []);
 
+  useEffect(() => {
+    // Any change to planning inputs invalidates the current planned route.
+    setPlannedRoute(null);
+  }, [routeName, description, startLat, startLon, selectedPropertyIds]);
+
   const selectedCount = selectedPropertyIds.length;
 
   const selectedProperties = useMemo(() => {
