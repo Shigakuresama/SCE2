@@ -100,6 +100,10 @@ After deployment, your URLs will be:
 - The current production webapp slug is `sce2-webap` (without the second `p`)
 - Use `https://sce2-webap.onrender.com`
 
+**Queue page returns 404?**
+- Use hash routes on static hosting: `https://sce2-webap.onrender.com/#/queue`
+- If you still see old routing behavior, hard refresh once (`Ctrl/Cmd + Shift + R`)
+
 **QR codes don't work?**
 - Check `VITE_MOBILE_BASE_URL` in webapp
 - Should be `https://sce2-mobile.onrender.com`
