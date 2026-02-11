@@ -157,10 +157,10 @@ async function fetchScrapeJob(): Promise<ScrapeJob | null> {
   const config = await getConfig();
 
   try {
-    log('Fetching scrape job from', `${config.apiBaseUrl}/api/queue/scrape`);
+    log('Fetching scrape job from', `${config.apiBaseUrl}/api/queue/scrape-and-claim`);
 
     const response = await fetchWithTimeout(
-      `${config.apiBaseUrl}/api/queue/scrape`,
+      `${config.apiBaseUrl}/api/queue/scrape-and-claim`,
       { method: 'GET' },
       config.timeout
     );
@@ -189,10 +189,10 @@ async function fetchSubmitJob(): Promise<SubmitJob | null> {
   const config = await getConfig();
 
   try {
-    log('Fetching submit job from', `${config.apiBaseUrl}/api/queue/submit`);
+    log('Fetching submit job from', `${config.apiBaseUrl}/api/queue/submit-and-claim`);
 
     const response = await fetchWithTimeout(
-      `${config.apiBaseUrl}/api/queue/submit`,
+      `${config.apiBaseUrl}/api/queue/submit-and-claim`,
       { method: 'GET' },
       config.timeout
     );
@@ -399,7 +399,27 @@ async function markJobComplete(propertyId: number, sceCaseId: string) {
 
 async function markJobFailed(propertyId: number, type: string, reason: string) {
   log(`Job failed: ${propertyId} (${type}) - ${reason}`);
-  // Could implement retry logic here
+  const config = await getConfig();
+
+  try {
+    const response = await fetchWithTimeout(
+      `${config.apiBaseUrl}/api/queue/${propertyId}/fail`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, reason }),
+      },
+      config.timeout
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    log('Job marked failed:', propertyId);
+  } catch (error) {
+    log('Failed to mark job failed:', error);
+  }
 }
 
 async function waitForTabLoad(tabId: number): Promise<void> {
