@@ -79,6 +79,8 @@ interface SubmitResponse {
   error?: string;
 }
 
+const SCE_CUSTOMER_SEARCH_URL = 'https://sce.dsmcentral.com/onsite/customer-search';
+
 // ==========================================
 // QUEUE MANAGEMENT
 // ==========================================
@@ -231,22 +233,12 @@ async function processScrapeJob(job: ScrapeJob): Promise<void> {
   SCRAPE_QUEUE.currentJob = job;
 
   try {
-    // Open SCE form in new tab
-    const tab = await chrome.tabs.create({
-      url: 'https://sce.dsmcentral.com/onsite',
-    });
+    const tab = await openSceCustomerSearchTab();
 
     log(`Opened tab ${tab.id} for scrape job ${job.id}`);
 
-    // Wait for tab to load
-    await waitForTabLoad(tab.id!);
-    log(`Tab ${tab.id} loaded`);
-
-    // Small delay for Angular to initialize
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Send scrape command to content script
-    const response = await chrome.tabs.sendMessage(
+    // Send scrape command to content script (with retries while script initializes)
+    const response = await sendTabMessageWithRetry<ScrapeResponse>(
       tab.id!,
       {
         action: 'SCRAPE_PROPERTY',
@@ -256,12 +248,9 @@ async function processScrapeJob(job: ScrapeJob): Promise<void> {
           streetName: job.streetName,
           zipCode: job.zipCode,
         },
-      }
-    ) as ScrapeResponse;
-
-    if (chrome.runtime.lastError) {
-      throw new Error(`Content script error: ${chrome.runtime.lastError.message}`);
-    }
+      },
+      4
+    );
 
     const result = response;
 
@@ -322,19 +311,9 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
   SUBMIT_QUEUE.currentJob = job;
 
   try {
-    // Open SCE form in new tab
-    const tab = await chrome.tabs.create({
-      url: 'https://sce.dsmcentral.com/onsite',
-    });
+    const tab = await openSceCustomerSearchTab();
 
     log(`Opened tab ${tab.id} for submit job ${job.id}`);
-
-    // Wait for tab to load
-    await waitForTabLoad(tab.id!);
-    log(`Tab ${tab.id} loaded`);
-
-    // Small delay for Angular to initialize
-    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Prepare documents with URLs
     const config = await getConfig();
@@ -345,7 +324,7 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
     }));
 
     // Send submit command to content script
-    const response = await chrome.tabs.sendMessage(
+    const response = await sendTabMessageWithRetry<SubmitResponse>(
       tab.id!,
       {
         action: 'SUBMIT_APPLICATION',
@@ -353,12 +332,9 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
           ...job,
           documents,
         },
-      }
-    ) as SubmitResponse;
-
-    if (chrome.runtime.lastError) {
-      throw new Error(`Content script error: ${chrome.runtime.lastError.message}`);
-    }
+      },
+      4
+    );
 
     const result = response;
 
@@ -507,6 +483,80 @@ async function waitForTabLoad(tabId: number): Promise<void> {
       }
     }, 30000);
   });
+}
+
+function isRetryableContentScriptError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('receiving end does not exist') ||
+    normalized.includes('could not establish connection')
+  );
+}
+
+async function sendTabMessageWithRetry<T>(
+  tabId: number,
+  message: Record<string, unknown>,
+  attempts = 4
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await new Promise<T>((resolve, reject) => {
+        chrome.tabs.sendMessage(tabId, message, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          resolve(response as T);
+        });
+      });
+    } catch (error) {
+      const asError =
+        error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown error');
+      lastError = asError;
+
+      if (attempt >= attempts || !isRetryableContentScriptError(asError.message)) {
+        throw asError;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+
+  throw lastError ?? new Error('Failed to send message to tab');
+}
+
+async function openSceCustomerSearchTab(): Promise<chrome.tabs.Tab> {
+  const tab = await chrome.tabs.create({
+    url: SCE_CUSTOMER_SEARCH_URL,
+  });
+
+  if (!tab.id) {
+    throw new Error('Failed to open SCE customer-search tab');
+  }
+
+  await waitForTabLoad(tab.id);
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  let loadedTab = await chrome.tabs.get(tab.id);
+  let currentUrl = (loadedTab.url ?? '').toLowerCase();
+
+  // Some SCE sessions land on /onsite first; retry customer-search once.
+  if (!currentUrl.includes('/onsite/customer-search')) {
+    await chrome.tabs.update(tab.id, { url: SCE_CUSTOMER_SEARCH_URL });
+    await waitForTabLoad(tab.id);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    loadedTab = await chrome.tabs.get(tab.id);
+    currentUrl = (loadedTab.url ?? '').toLowerCase();
+  }
+
+  if (!currentUrl.includes('/onsite/customer-search')) {
+    throw new Error(
+      'SCE customer-search is not accessible in this browser session. Open customer-search manually and log in, then retry.'
+    );
+  }
+
+  return loadedTab;
 }
 
 async function closeTab(tabId: number): Promise<void> {

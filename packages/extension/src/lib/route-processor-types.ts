@@ -65,7 +65,8 @@ export interface BatchProgress {
  * Default configuration values
  */
 export const DEFAULT_ROUTE_CONFIG: RouteConfig = {
-  sceFormUrl: 'https://sce.dsmcentral.com/program-management-app/new-customer',
+  // Use customer-search directly so the logged-in browser session lands on the right page.
+  sceFormUrl: 'https://sce.dsmcentral.com/onsite/customer-search',
   tabOpenDelay: 2000,      // 2 seconds
   captureDelay: 5000,     // 5 seconds (wait for page load + search + income)
   screenshotDelay: 1000,  // 1 second
