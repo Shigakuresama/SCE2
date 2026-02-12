@@ -8,6 +8,7 @@ const SHARED_SESSION_FAILURE_PATTERNS = [
   'sce session expired',
   'does not have access to customer-search',
   'landed on',
+  'unexpected sce page',
   'could not find sce address fields',
   'could not find sce zip field',
   'customer-search form was not available',

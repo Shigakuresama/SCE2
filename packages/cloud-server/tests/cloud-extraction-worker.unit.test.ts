@@ -347,4 +347,72 @@ describe('Cloud Extraction Worker', () => {
     expect(updatedRun.items[2].status).toBe('FAILED');
     expect(updatedRun.items[2].error).toContain('Skipped after shared SCE session failure');
   });
+
+  it('fails fast when extractor returns an unexpected SCE page error', async () => {
+    const { prisma } = await import('../src/lib/database.js');
+    const { encryptJson } = await import('../src/lib/encryption.js');
+    const { processExtractionRun } = await import('../src/lib/cloud-extraction-worker.js');
+
+    const properties = await Promise.all([
+      prisma.property.create({
+        data: {
+          addressFull: '110 Unexpected Page St, Santa Ana, CA 92701',
+          streetNumber: '110',
+          streetName: 'Unexpected Page St',
+          zipCode: '92701',
+        },
+      }),
+      prisma.property.create({
+        data: {
+          addressFull: '111 Unexpected Page St, Santa Ana, CA 92701',
+          streetNumber: '111',
+          streetName: 'Unexpected Page St',
+          zipCode: '92701',
+        },
+      }),
+    ]);
+
+    const session = await prisma.extractionSession.create({
+      data: {
+        label: 'Unexpected Page Session',
+        encryptedStateJson: encryptJson('{"cookies":[]}', process.env.SCE_SESSION_ENCRYPTION_KEY!),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    const run = await prisma.extractionRun.create({
+      data: {
+        sessionId: session.id,
+        totalCount: properties.length,
+        items: {
+          create: properties.map((property) => ({ propertyId: property.id })),
+        },
+      },
+    });
+
+    let attempts = 0;
+    await processExtractionRun(run.id, {
+      client: {
+        extractCustomerData: async () => {
+          attempts += 1;
+          throw new Error(
+            'Unexpected SCE page (https://sce.dsmcentral.com/onsite/). Expected https://sce.dsmcentral.com/onsite/customer-search. Login or account access may be missing.'
+          );
+        },
+      },
+    });
+
+    const updatedRun = await prisma.extractionRun.findUniqueOrThrow({
+      where: { id: run.id },
+      include: { items: { orderBy: { id: 'asc' } } },
+    });
+
+    expect(attempts).toBe(1);
+    expect(updatedRun.processedCount).toBe(2);
+    expect(updatedRun.failureCount).toBe(2);
+    expect(updatedRun.status).toBe('FAILED');
+    expect(updatedRun.errorSummary).toContain('Unexpected SCE page');
+    expect(updatedRun.items[1].status).toBe('FAILED');
+    expect(updatedRun.items[1].error).toContain('Skipped after shared SCE session failure');
+  });
 });

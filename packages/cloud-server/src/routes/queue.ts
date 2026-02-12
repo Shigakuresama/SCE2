@@ -375,9 +375,9 @@ queueRoutes.post(
       const addressKeys = dedupedAddresses.map((addr) => addr.addressFull.toLowerCase());
       const existingRows = addressKeys.length
         ? await tx.$queryRaw<Array<{ addressFull: string }>>(Prisma.sql`
-            SELECT addressFull
-            FROM Property
-            WHERE lower(addressFull) IN (${Prisma.join(addressKeys)})
+            SELECT "addressFull"
+            FROM "Property"
+            WHERE lower("addressFull") IN (${Prisma.join(addressKeys)})
           `)
         : [];
       const existingAddressKeys = new Set(
