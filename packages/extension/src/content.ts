@@ -41,6 +41,7 @@ import {
   waitForElement as waitForElementUtil,
 } from './lib/dom-utils.js';
 import { getConfig } from './lib/storage.js';
+import { asyncHandler } from './lib/utils.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -857,7 +858,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'captureRouteData':
       const data = handleCaptureRouteData();
       sendResponse({ success: true, data });
-      return true;
+      return false; // Synchronous response, no need to keep channel open
 
     case 'SUBMIT_APPLICATION':
       performSubmit(message.data as SubmitMessageData)
@@ -868,32 +869,66 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'GET_CURRENT_SECTION':
       const section = getActiveSectionTitle();
       sendResponse({ section });
-      break;
+      return false; // Synchronous response
 
     case 'CHECK_CUSTOMER_SEARCH_READY':
       sendResponse({
         success: true,
         data: checkCustomerSearchReadiness(),
       });
-      return true;
+      return false; // Synchronous response
 
-    // NEW: Fill all sections
+    // Fill all sections with async handler wrapper
     case 'FILL_ALL_SECTIONS':
-      handleFillAllSections(sendResponse);
+      (async () => {
+        try {
+          await handleFillAllSections();
+          sendResponse({ success: true });
+        } catch (error) {
+          const errorMessage = (error as Error).message;
+
+          // Check if stopped by user
+          if (errorMessage === 'Stopped by user') {
+            const banner = (window as any).sce2Banner as BannerController;
+            if (banner) {
+              banner.setStopped();
+            }
+            sendResponse({ success: false, stopped: true });
+          } else {
+            const banner = (window as any).sce2Banner as BannerController;
+            if (banner) {
+              banner.setError('fill-all-btn', errorMessage);
+            }
+            sendResponse({ success: false, error: errorMessage });
+          }
+        }
+      })();
       return true;
 
-    // NEW: Fill current section
+    // Fill current section with async handler wrapper
     case 'FILL_CURRENT_SECTION':
-      handleFillCurrentSection(sendResponse);
+      (async () => {
+        try {
+          await handleFillCurrentSection();
+          sendResponse({ success: true });
+        } catch (error) {
+          const errorMessage = (error as Error).message;
+          const banner = (window as any).sce2Banner as BannerController;
+          if (banner) {
+            banner.setError('fill-section-btn', errorMessage);
+          }
+          sendResponse({ success: false, error: errorMessage });
+        }
+      })();
       return true;
 
-    // NEW: Stop filling
+    // Stop filling
     case 'STOP_FILLING':
       requestStop();
       sendResponse({ success: true });
-      return true;
+      return false; // Synchronous response
 
-    // NEW: Show banner manually
+    // Show banner manually
     case 'SHOW_BANNER':
       const banner = (window as any).sce2Banner as BannerController;
       if (banner) {
@@ -902,10 +937,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else {
         sendResponse({ success: false, error: 'Banner not initialized' });
       }
-      return true;
+      return false; // Synchronous response
 
     default:
       sendResponse({ error: 'Unknown action' });
+      return false; // Unknown action
   }
 });
 
@@ -916,110 +952,86 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 /**
  * Handle fill all sections request
  */
-async function handleFillAllSections(sendResponse: (response: any) => void): Promise<void> {
+async function handleFillAllSections(): Promise<void> {
   const banner = (window as any).sce2Banner as BannerController;
 
   if (!banner) {
-    sendResponse({ success: false, error: 'Banner not found' });
-    return;
+    throw new Error('Banner not found');
   }
 
   resetStopFlag();
 
-  try {
-    // Get property data from storage or use defaults
-    const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
+  // Get property data from storage or use defaults
+  const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
 
-    // Use queued property data or defaults
-    let propertyData = result.propertyData || {};
+  // Use queued property data or defaults
+  let propertyData = result.propertyData || {};
 
-    // If we have queued property, use its data
-    if (result.queuedProperty) {
-      propertyData = {
-        ...propertyData,
-        ...result.queuedProperty,
-      };
-
-      // Clear queue after use
-      chrome.storage.local.remove(['queuedProperty']);
-    }
-
-    // Apply SCE1 defaults for any missing fields
+  // If we have queued property, use its data
+  if (result.queuedProperty) {
     propertyData = {
-      firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
-      lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
-      phone: propertyData.phone || SCE1_DEFAULTS.phone,
-      email: propertyData.email || SCE1_DEFAULTS.email,
       ...propertyData,
+      ...result.queuedProperty,
     };
 
-    await fillAllSections(propertyData, banner);
-
-    banner.setSuccess('All sections filled successfully!');
-    sendResponse({ success: true });
-
-  } catch (error) {
-    const errorMessage = (error as Error).message;
-
-    if (errorMessage === 'Stopped by user') {
-      banner.setStopped();
-      sendResponse({ success: false, stopped: true });
-    } else {
-      banner.setError('fill-all-btn', errorMessage);
-      sendResponse({ success: false, error: errorMessage });
-    }
+    // Clear queue after use
+    chrome.storage.local.remove(['queuedProperty']);
   }
+
+  // Apply SCE1 defaults for any missing fields
+  propertyData = {
+    firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
+    lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
+    phone: propertyData.phone || SCE1_DEFAULTS.phone,
+    email: propertyData.email || SCE1_DEFAULTS.email,
+    ...propertyData,
+  };
+
+  await fillAllSections(propertyData, banner);
+
+  banner.setSuccess('All sections filled successfully!');
 }
 
 /**
  * Handle fill current section request
  */
-async function handleFillCurrentSection(sendResponse: (response: any) => void): Promise<void> {
+async function handleFillCurrentSection(): Promise<void> {
   const banner = (window as any).sce2Banner as BannerController;
 
   if (!banner) {
-    sendResponse({ success: false, error: 'Banner not found' });
-    return;
+    throw new Error('Banner not found');
   }
 
   resetStopFlag();
 
-  try {
-    // Get property data from storage
-    const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
+  // Get property data from storage
+  const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
 
-    let propertyData = result.propertyData || {};
+  let propertyData = result.propertyData || {};
 
-    // If we have queued property, use its data
-    if (result.queuedProperty) {
-      propertyData = {
-        ...propertyData,
-        ...result.queuedProperty,
-      };
-
-      // Clear queue after use
-      chrome.storage.local.remove(['queuedProperty']);
-    }
-
-    // Apply SCE1 defaults
+  // If we have queued property, use its data
+  if (result.queuedProperty) {
     propertyData = {
-      firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
-      lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
-      phone: propertyData.phone || SCE1_DEFAULTS.phone,
-      email: propertyData.email || SCE1_DEFAULTS.email,
       ...propertyData,
+      ...result.queuedProperty,
     };
 
-    await fillCurrentSection(propertyData, banner);
-
-    banner.showSectionSuccess();
-    sendResponse({ success: true });
-
-  } catch (error) {
-    const errorMessage = (error as Error).message;
-    banner.setError('fill-section-btn', errorMessage);
-    sendResponse({ success: false, error: errorMessage });
+    // Clear queue after use
+    chrome.storage.local.remove(['queuedProperty']);
   }
+
+  // Apply SCE1 defaults
+  propertyData = {
+    firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
+    lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
+    phone: propertyData.phone || SCE1_DEFAULTS.phone,
+    email: propertyData.email || SCE1_DEFAULTS.email,
+    ...propertyData,
+  };
+
+  await fillCurrentSection(propertyData, banner);
+
+  banner.showSectionSuccess();
 }
 
 // ==========================================
