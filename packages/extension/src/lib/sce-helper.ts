@@ -230,8 +230,6 @@ export class SCEHelper {
   // ==========================================
 
   async fillAdditionalCustomerInfo(data: Partial<AdditionalCustomerInfo>): Promise<boolean> {
-    const ops: Array<{ name: string; fn: () => Promise<boolean> }> = [];
-
     // Dropdowns
     const dropdowns: Array<[keyof AdditionalCustomerInfo, string]> = [
       ['title', 'Title'],
@@ -252,10 +250,9 @@ export class SCEHelper {
     for (const [key, label] of dropdowns) {
       const val = data[key];
       if (val) {
-        ops.push({
-          name: label,
-          fn: async () => { await selectDropdownByLabel(label, val, this.signal); return true; },
-        });
+        await this.fillFieldSafe('Additional Customer Info', key, () =>
+          selectDropdownByLabel(label, val!, this.signal)
+        );
       }
     }
 
@@ -271,19 +268,9 @@ export class SCEHelper {
     for (const [key, label] of textFields) {
       const val = data[key];
       if (val) {
-        ops.push({
-          name: label,
-          fn: async () => { await fillFieldByLabel(label, val, this.signal); return true; },
-        });
-      }
-    }
-
-    // Fill sequentially (dropdowns must close before next opens)
-    for (const op of ops) {
-      try {
-        await op.fn();
-      } catch (e) {
-        console.warn(`[AdditionalCustomerInfo] Failed: ${op.name}:`, (e as Error).message);
+        await this.fillFieldSafe('Additional Customer Info', key, () =>
+          fillFieldByLabel(label, val!, this.signal)
+        );
       }
     }
 
