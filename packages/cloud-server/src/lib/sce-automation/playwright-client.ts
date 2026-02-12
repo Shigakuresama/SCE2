@@ -381,6 +381,28 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
     }
   }
 
+  async validateSessionAccess(
+    options?: { storageStateJson?: string }
+  ): Promise<{ currentUrl: string }> {
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      storageState: options?.storageStateJson ? JSON.parse(options.storageStateJson) : undefined,
+    });
+    const page = await context.newPage();
+
+    try {
+      page.setDefaultTimeout(config.sceAutomationTimeoutMs);
+      const targetUrl = resolveCustomerSearchUrl();
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(1200);
+      await assertOnCustomerSearchPage(page, targetUrl);
+      return { currentUrl: page.url() };
+    } finally {
+      await context.close();
+      await browser.close();
+    }
+  }
+
   async extractCustomerData(
     address: SCEAutomationAddressInput,
     options?: { storageStateJson?: string }

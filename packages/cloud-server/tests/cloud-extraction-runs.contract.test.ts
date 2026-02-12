@@ -27,12 +27,16 @@ beforeEach(async () => {
     setCloudExtractionEnabledForTests,
     setCloudExtractionRunLauncherForTests,
     setCloudExtractionSessionStateFactoryForTests,
+    setCloudExtractionSessionValidatorForTests,
   } = await import(
     '../src/routes/cloud-extraction.js'
   );
   setCloudExtractionEnabledForTests(true);
   setCloudExtractionRunLauncherForTests(async () => {});
   setCloudExtractionSessionStateFactoryForTests(async () => '{"cookies":[],"origins":[]}');
+  setCloudExtractionSessionValidatorForTests(async () => ({
+    currentUrl: 'https://sce.dsmcentral.com/onsite/customer-search',
+  }));
 });
 
 afterEach(async () => {
@@ -40,12 +44,14 @@ afterEach(async () => {
     setCloudExtractionEnabledForTests,
     setCloudExtractionRunLauncherForTests,
     setCloudExtractionSessionStateFactoryForTests,
+    setCloudExtractionSessionValidatorForTests,
   } = await import(
     '../src/routes/cloud-extraction.js'
   );
   setCloudExtractionEnabledForTests(null);
   setCloudExtractionRunLauncherForTests(async () => {});
   setCloudExtractionSessionStateFactoryForTests(null);
+  setCloudExtractionSessionValidatorForTests(null);
 });
 
 afterAll(() => {
@@ -190,6 +196,56 @@ describe('Cloud Extraction Runs Contract', () => {
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
     expect(res.body.error.message).toContain('expiresAt');
+  });
+
+  it('validates an active session against customer-search', async () => {
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const session = await request(app).post('/api/cloud-extraction/sessions').send({
+      label: 'Session To Validate',
+      sessionStateJson: '{"cookies":[]}',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+
+    const res = await request(app).post(
+      "/api/cloud-extraction/sessions/" + session.body.data.id + "/validate"
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.valid).toBe(true);
+    expect(res.body.data.currentUrl).toContain('/onsite/customer-search');
+    expect(res.body.data.message).toContain('can access SCE customer-search');
+  });
+
+  it('returns valid=false when session validation fails', async () => {
+    const { setCloudExtractionSessionValidatorForTests } = await import(
+      '../src/routes/cloud-extraction.js'
+    );
+    setCloudExtractionSessionValidatorForTests(async () => {
+      throw new Error(
+        'SCE login succeeded but landed on https://sce.dsmcentral.com/onsite/ instead of https://sce.dsmcentral.com/onsite/customer-search. This SCE account/session does not have access to customer-search.'
+      );
+    });
+
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const session = await request(app).post('/api/cloud-extraction/sessions').send({
+      label: 'Session Validation Failure',
+      sessionStateJson: '{"cookies":[]}',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+
+    const res = await request(app).post(
+      "/api/cloud-extraction/sessions/" + session.body.data.id + "/validate"
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.valid).toBe(false);
+    expect(res.body.data.message).toContain('does not have access to customer-search');
   });
 
   it('creates a queued extraction run', async () => {

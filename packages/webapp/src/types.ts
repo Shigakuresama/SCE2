@@ -172,6 +172,14 @@ export interface ExtractionRunItem {
   error: string | null;
 }
 
+export interface SessionValidationResult {
+  sessionId: number;
+  valid: boolean;
+  checkedAt: string;
+  message: string;
+  currentUrl?: string;
+}
+
 export interface ExtractionRun {
   id: number;
   createdAt?: string;

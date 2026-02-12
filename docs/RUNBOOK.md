@@ -72,11 +72,14 @@ Use this flow for server-side extraction without the extension:
      `https://sce.dsmcentral.com/onsite/customer-search`
    - Capture storage-state JSON only after you can see the authenticated SCE flow.
    - If runs fail with `Unexpected SCE page .../onsite/`, refresh login and regenerate session JSON.
-5. Select the session, verify property IDs, then click **Run Cloud Extraction**.
-6. Monitor run status and counters:
+5. Select the session and click **Validate Session**.
+   - Expected success: `Session can access SCE customer-search.`
+   - If validation fails, regenerate the session before running extraction.
+6. Verify property IDs, then click **Run Cloud Extraction**.
+7. Monitor run status and counters:
    - `QUEUED` / `RUNNING` / `COMPLETED` / `COMPLETED_WITH_ERRORS` / `FAILED`
-7. Confirm successful properties moved to `READY_FOR_FIELD`.
-8. For failed items, keep them in `PENDING_SCRAPE` and retry in another run after fixing selector/session issues.
+8. Confirm successful properties moved to `READY_FOR_FIELD`.
+9. For failed items, keep them in `PENDING_SCRAPE` and retry in another run after fixing selector/session issues.
 
 ### Cloud Extraction Rollback (Extension Fallback)
 
