@@ -21,6 +21,7 @@ import type { TermsInfo } from './sections/terms.js';
 import type { CommentsInfo } from './sections/comments.js';
 import type { StatusInfo } from './sections/status.js';
 import { SectionNavigator, type SectionName } from './section-navigator.js';
+import { ErrorAccumulator } from './error-accumulator.js';
 import {
   fillFieldByLabel,
   selectDropdownByLabel,
@@ -68,10 +69,39 @@ export { sleep } from './dom-utils.js';
 export class SCEHelper {
   private sectionNavigator: SectionNavigator;
   private signal?: AbortSignal;
+  private errors: ErrorAccumulator;
 
-  constructor(signal?: AbortSignal) {
+  constructor(signal?: AbortSignal, errors?: ErrorAccumulator) {
     this.sectionNavigator = new SectionNavigator();
     this.signal = signal;
+    this.errors = errors ?? new ErrorAccumulator();
+  }
+
+  /**
+   * Get the error accumulator for this helper instance.
+   */
+  getErrors(): ErrorAccumulator {
+    return this.errors;
+  }
+
+  /**
+   * Fill a field and capture any errors.
+   * Returns true if successful, false if error occurred.
+   */
+  private async fillFieldSafe(
+    section: string,
+    fieldName: string,
+    operation: () => Promise<void>
+  ): Promise<boolean> {
+    try {
+      await operation();
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.errors.add(section, fieldName, message);
+      console.warn(`[${section}] Error filling ${fieldName}:`, message);
+      return false;
+    }
   }
 
   // ==========================================
@@ -265,9 +295,21 @@ export class SCEHelper {
   // ==========================================
 
   async fillProjectInfo(data: Partial<ProjectInfo>): Promise<boolean> {
-    if (data.squareFootage) await fillFieldByLabel('Square Footage', data.squareFootage, this.signal).catch(e => console.warn('[ProjectInfo]', e));
-    if (data.yearBuilt) await fillFieldByLabel('Year Built', data.yearBuilt, this.signal).catch(e => console.warn('[ProjectInfo]', e));
-    if (data.propertyType) await selectDropdownByLabel('Property Type', data.propertyType, this.signal).catch(e => console.warn('[ProjectInfo]', e));
+    if (data.squareFootage) {
+      await this.fillFieldSafe('Project Info', 'squareFootage', () =>
+        fillFieldByLabel('Square Footage', data.squareFootage!, this.signal)
+      );
+    }
+    if (data.yearBuilt) {
+      await this.fillFieldSafe('Project Info', 'yearBuilt', () =>
+        fillFieldByLabel('Year Built', data.yearBuilt!, this.signal)
+      );
+    }
+    if (data.propertyType) {
+      await this.fillFieldSafe('Project Info', 'propertyType', () =>
+        selectDropdownByLabel('Property Type', data.propertyType!, this.signal)
+      );
+    }
     return true;
   }
 
@@ -276,11 +318,31 @@ export class SCEHelper {
   // ==========================================
 
   async fillTradeAllyInfo(data: Partial<TradeAllyInfo>): Promise<boolean> {
-    if (data.firstName) await fillFieldByLabel('First Name', data.firstName, this.signal).catch(e => console.warn('[TradeAlly]', e));
-    if (data.lastName) await fillFieldByLabel('Last Name', data.lastName, this.signal).catch(e => console.warn('[TradeAlly]', e));
-    if (data.title) await fillFieldByLabel('Title', data.title, this.signal).catch(e => console.warn('[TradeAlly]', e));
-    if (data.phone) await fillFieldByLabel('Phone', data.phone, this.signal).catch(e => console.warn('[TradeAlly]', e));
-    if (data.email) await fillFieldByLabel('Email', data.email, this.signal).catch(e => console.warn('[TradeAlly]', e));
+    if (data.firstName) {
+      await this.fillFieldSafe('Trade Ally', 'firstName', () =>
+        fillFieldByLabel('First Name', data.firstName!, this.signal)
+      );
+    }
+    if (data.lastName) {
+      await this.fillFieldSafe('Trade Ally', 'lastName', () =>
+        fillFieldByLabel('Last Name', data.lastName!, this.signal)
+      );
+    }
+    if (data.title) {
+      await this.fillFieldSafe('Trade Ally', 'title', () =>
+        fillFieldByLabel('Title', data.title!, this.signal)
+      );
+    }
+    if (data.phone) {
+      await this.fillFieldSafe('Trade Ally', 'phone', () =>
+        fillFieldByLabel('Phone', data.phone!, this.signal)
+      );
+    }
+    if (data.email) {
+      await this.fillFieldSafe('Trade Ally', 'email', () =>
+        fillFieldByLabel('Email', data.email!, this.signal)
+      );
+    }
     return true;
   }
 
@@ -305,11 +367,17 @@ export class SCEHelper {
     for (const [key, label] of dropdowns) {
       const val = data[key];
       if (val) {
-        await selectDropdownByLabel(label, val, this.signal).catch(e => console.warn('[Assessment]', e));
+        await this.fillFieldSafe('Assessment', key, () =>
+          selectDropdownByLabel(label, val!, this.signal)
+        );
       }
     }
 
-    if (data.notes) await fillFieldByLabel('Notes', data.notes, this.signal).catch(e => console.warn('[Assessment]', e));
+    if (data.notes) {
+      await this.fillFieldSafe('Assessment', 'notes', () =>
+        fillFieldByLabel('Notes', data.notes!, this.signal)
+      );
+    }
     return true;
   }
 
@@ -325,8 +393,16 @@ export class SCEHelper {
       // Add button might not exist or already clicked
     }
 
-    if (data.householdSize) await fillFieldByLabel('Household Size', data.householdSize, this.signal).catch(e => console.warn('[Household]', e));
-    if (data.incomeLevel) await selectDropdownByLabel('Income Level', data.incomeLevel, this.signal).catch(e => console.warn('[Household]', e));
+    if (data.householdSize) {
+      await this.fillFieldSafe('Household', 'householdSize', () =>
+        fillFieldByLabel('Household Size', data.householdSize!, this.signal)
+      );
+    }
+    if (data.incomeLevel) {
+      await this.fillFieldSafe('Household', 'incomeLevel', () =>
+        selectDropdownByLabel('Income Level', data.incomeLevel!, this.signal)
+      );
+    }
     return true;
   }
 
@@ -335,8 +411,16 @@ export class SCEHelper {
   // ==========================================
 
   async fillEnrollmentInfo(data: Partial<EnrollmentInfo>): Promise<boolean> {
-    if (data.enrollmentDate) await fillDateField('Enrollment Date', data.enrollmentDate, this.signal).catch(e => console.warn('[Enrollment]', e));
-    if (data.programSource) await selectDropdownByLabel('Program Source', data.programSource, this.signal).catch(e => console.warn('[Enrollment]', e));
+    if (data.enrollmentDate) {
+      await this.fillFieldSafe('Enrollment', 'enrollmentDate', () =>
+        fillDateField('Enrollment Date', data.enrollmentDate!, this.signal)
+      );
+    }
+    if (data.programSource) {
+      await this.fillFieldSafe('Enrollment', 'programSource', () =>
+        selectDropdownByLabel('Program Source', data.programSource!, this.signal)
+      );
+    }
     return true;
   }
 
@@ -345,9 +429,21 @@ export class SCEHelper {
   // ==========================================
 
   async fillEquipmentInfo(data: Partial<EquipmentInfo>): Promise<boolean> {
-    if (data.primaryHeating) await selectDropdownByLabel('Primary Heating', data.primaryHeating, this.signal).catch(e => console.warn('[Equipment]', e));
-    if (data.primaryCooling) await selectDropdownByLabel('Primary Cooling', data.primaryCooling, this.signal).catch(e => console.warn('[Equipment]', e));
-    if (data.waterHeater) await selectDropdownByLabel('Water Heater', data.waterHeater, this.signal).catch(e => console.warn('[Equipment]', e));
+    if (data.primaryHeating) {
+      await this.fillFieldSafe('Equipment', 'primaryHeating', () =>
+        selectDropdownByLabel('Primary Heating', data.primaryHeating!, this.signal)
+      );
+    }
+    if (data.primaryCooling) {
+      await this.fillFieldSafe('Equipment', 'primaryCooling', () =>
+        selectDropdownByLabel('Primary Cooling', data.primaryCooling!, this.signal)
+      );
+    }
+    if (data.waterHeater) {
+      await this.fillFieldSafe('Equipment', 'waterHeater', () =>
+        selectDropdownByLabel('Water Heater', data.waterHeater!, this.signal)
+      );
+    }
     return true;
   }
 
@@ -356,8 +452,16 @@ export class SCEHelper {
   // ==========================================
 
   async fillBasicEnrollmentInfo(data: Partial<BasicEnrollmentInfo>): Promise<boolean> {
-    if (data.utilityAccount) await fillFieldByLabel('Utility Account', data.utilityAccount, this.signal).catch(e => console.warn('[BasicEnrollment]', e));
-    if (data.rateSchedule) await selectDropdownByLabel('Rate Schedule', data.rateSchedule, this.signal).catch(e => console.warn('[BasicEnrollment]', e));
+    if (data.utilityAccount) {
+      await this.fillFieldSafe('Basic Enrollment', 'utilityAccount', () =>
+        fillFieldByLabel('Utility Account', data.utilityAccount!, this.signal)
+      );
+    }
+    if (data.rateSchedule) {
+      await this.fillFieldSafe('Basic Enrollment', 'rateSchedule', () =>
+        selectDropdownByLabel('Rate Schedule', data.rateSchedule!, this.signal)
+      );
+    }
     return true;
   }
 
@@ -366,8 +470,16 @@ export class SCEHelper {
   // ==========================================
 
   async fillBonusInfo(data: Partial<BonusInfo>): Promise<boolean> {
-    if (data.bonusProgram) await selectDropdownByLabel('Bonus Program', data.bonusProgram, this.signal).catch(e => console.warn('[Bonus]', e));
-    if (data.bonusAmount) await fillFieldByLabel('Bonus Amount', data.bonusAmount, this.signal).catch(e => console.warn('[Bonus]', e));
+    if (data.bonusProgram) {
+      await this.fillFieldSafe('Bonus', 'bonusProgram', () =>
+        selectDropdownByLabel('Bonus Program', data.bonusProgram!, this.signal)
+      );
+    }
+    if (data.bonusAmount) {
+      await this.fillFieldSafe('Bonus', 'bonusAmount', () =>
+        fillFieldByLabel('Bonus Amount', data.bonusAmount!, this.signal)
+      );
+    }
     return true;
   }
 
@@ -377,10 +489,14 @@ export class SCEHelper {
 
   async fillTermsInfo(data: Partial<TermsInfo>): Promise<boolean> {
     if (data.termsAccepted) {
-      await clickCheckbox('terms', true, this.signal).catch(e => console.warn('[Terms]', e));
+      await this.fillFieldSafe('Terms', 'termsAccepted', () =>
+        clickCheckbox('terms', true, this.signal)
+      );
     }
     if (data.consentDate) {
-      await fillDateField('Consent Date', data.consentDate, this.signal).catch(e => console.warn('[Terms]', e));
+      await this.fillFieldSafe('Terms', 'consentDate', () =>
+        fillDateField('Consent Date', data.consentDate!, this.signal)
+      );
     }
     return true;
   }
@@ -391,7 +507,9 @@ export class SCEHelper {
 
   async fillCommentsInfo(data: Partial<CommentsInfo>): Promise<boolean> {
     if (data.comments) {
-      await fillFieldByLabel('Comments', data.comments, this.signal).catch(e => console.warn('[Comments]', e));
+      await this.fillFieldSafe('Comments', 'comments', () =>
+        fillFieldByLabel('Comments', data.comments!, this.signal)
+      );
     }
     return true;
   }
@@ -401,8 +519,16 @@ export class SCEHelper {
   // ==========================================
 
   async fillStatusInfo(data: Partial<StatusInfo>): Promise<boolean> {
-    if (data.applicationStatus) await selectDropdownByLabel('Application Status', data.applicationStatus, this.signal).catch(e => console.warn('[Status]', e));
-    if (data.lastUpdated) await fillFieldByLabel('Last Updated', data.lastUpdated, this.signal).catch(e => console.warn('[Status]', e));
+    if (data.applicationStatus) {
+      await this.fillFieldSafe('Status', 'applicationStatus', () =>
+        selectDropdownByLabel('Application Status', data.applicationStatus!, this.signal)
+      );
+    }
+    if (data.lastUpdated) {
+      await this.fillFieldSafe('Status', 'lastUpdated', () =>
+        fillFieldByLabel('Last Updated', data.lastUpdated!, this.signal)
+      );
+    }
     return true;
   }
 
