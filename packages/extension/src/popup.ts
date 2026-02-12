@@ -17,6 +17,7 @@ const DEFAULT_POPUP_CONFIG: ExtensionConfig = {
   pollInterval: 5000,
   autoProcess: false,
 };
+const SCE_CUSTOMER_SEARCH_URL = 'https://sce.dsmcentral.com/onsite/customer-search';
 
 // Load configuration
 async function loadPopupConfig(): Promise<ExtensionConfig> {
@@ -100,6 +101,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     await updateUI();
+  });
+
+  // Open SCE customer-search in current browser profile/session.
+  document.getElementById('open-customer-search-btn')!.addEventListener('click', async () => {
+    await chrome.tabs.create({
+      url: SCE_CUSTOMER_SEARCH_URL,
+      active: true,
+    });
+    window.close();
   });
 
   // Show Form Assistant button
