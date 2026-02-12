@@ -166,6 +166,7 @@ function resolveCustomerSearchUrl(): string {
 
 const CANONICAL_TRADE_ALLY_LOGIN_URL =
   'https://sce-trade-ally-community.my.site.com/tradeally/s/login/?ec=302&inst=Vt&startURL=%2Ftradeally%2Fsite%2FSiteLogin.apexp';
+const TRADE_ALLY_HOSTNAME = 'sce-trade-ally-community.my.site.com';
 
 function normalizeTradeAllyLoginUrl(rawUrl: string): string {
   const trimmed = rawUrl.trim();
@@ -175,7 +176,7 @@ function normalizeTradeAllyLoginUrl(rawUrl: string): string {
 
   try {
     const parsed = new URL(trimmed);
-    if (parsed.hostname !== 'sce-trade-ally-community.my.site.com') {
+    if (parsed.hostname !== TRADE_ALLY_HOSTNAME) {
       return parsed.toString();
     }
 
@@ -219,6 +220,101 @@ function isRetriableNavigationError(error: unknown): boolean {
 
   const message = error.message.toLowerCase();
   return message.includes('err_aborted') || message.includes('navigation interrupted');
+}
+
+function resolveDsmSsoBridgeUrl(targetUrl: string): string {
+  const target = new URL(targetUrl);
+  const bridgeUrl = new URL('/traksmart4/public/saml2/saml/login', target.origin);
+  bridgeUrl.searchParams.set('sso-redirect-path', '/onsite');
+  return bridgeUrl.toString();
+}
+
+function isOnTradeAllyHost(rawUrl: string): boolean {
+  try {
+    return new URL(rawUrl).hostname === TRADE_ALLY_HOSTNAME;
+  } catch {
+    return false;
+  }
+}
+
+async function hasTradeAllySession(page: Page): Promise<boolean> {
+  const cookies = await page
+    .context()
+    .cookies([`https://${TRADE_ALLY_HOSTNAME}`])
+    .catch(() => []);
+
+  return cookies.some((cookie) => cookie.value?.trim().length > 0);
+}
+
+async function waitForTradeAllyLoginFlowCompletion(page: Page): Promise<void> {
+  const timeoutMs = Math.min(Math.max(config.sceAutomationTimeoutMs, 10000), 30000);
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    const currentUrl = page.url().toLowerCase();
+    if (!currentUrl.includes('/tradeally/loginflow/')) {
+      return;
+    }
+
+    await Promise.race([
+      page.waitForLoadState('domcontentloaded', { timeout: 1500 }),
+      page.waitForTimeout(500),
+    ]).catch(() => undefined);
+  }
+}
+
+async function runDsmSsoBridge(page: Page, targetUrl: string): Promise<boolean> {
+  const bridgeUrl = resolveDsmSsoBridgeUrl(targetUrl);
+
+  await waitForTradeAllyLoginFlowCompletion(page);
+
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      await page.goto(bridgeUrl, {
+        waitUntil: attempt === 1 ? 'domcontentloaded' : 'commit',
+      });
+      await page.waitForTimeout(1200 + 400 * attempt);
+
+      const currentUrl = page.url().toLowerCase();
+      if (currentUrl.includes('/tradeally/loginflow/')) {
+        await page.waitForTimeout(1200 * attempt);
+        continue;
+      }
+
+      return true;
+    } catch (error) {
+      if (!isRetriableNavigationError(error)) {
+        return false;
+      }
+      await page.waitForTimeout(500 * attempt);
+    }
+  }
+
+  return false;
+}
+
+async function tryRecoverViaTradeAllySso(page: Page, targetUrl: string): Promise<boolean> {
+  if (!(await hasTradeAllySession(page))) {
+    return false;
+  }
+
+  const bridged = await runDsmSsoBridge(page, targetUrl);
+  if (!bridged) {
+    return false;
+  }
+
+  try {
+    await navigateToCustomerSearchAfterLogin(page, targetUrl);
+    await page.waitForTimeout(1200);
+  } catch {
+    return false;
+  }
+
+  if (await hasLoginPrompt(page)) {
+    return false;
+  }
+
+  return hasCustomerSearchFields(page);
 }
 
 function sessionKey(storageStateJson?: string): string {
@@ -364,37 +460,33 @@ async function navigateToCustomerSearchAfterLogin(page: Page, targetUrl: string)
 
 async function tryRecoverCustomerSearchPage(page: Page, targetUrl: string): Promise<void> {
   const target = new URL(targetUrl);
-  const targetPath = normalizePath(target.pathname);
   const recoveryUrls = [
     targetUrl,
     `${target.origin}/onsite/customer-search`,
     `${target.origin}/onsite/#/customer-search`,
   ];
 
-  for (const url of recoveryUrls) {
-    try {
-      await page.goto(url, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(1400);
-    } catch {
-      continue;
-    }
+  for (let round = 1; round <= 3; round += 1) {
+    for (const url of recoveryUrls) {
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded' });
+        await page.waitForTimeout(1200 + 300 * round);
+      } catch {
+        continue;
+      }
 
-    if (await hasLoginPrompt(page)) {
-      return;
-    }
-    if (await hasCustomerSearchFields(page)) {
-      return;
-    }
-
-    const currentPath = normalizePath(new URL(page.url()).pathname);
-    if (currentPath === targetPath) {
-      return;
+      if (await hasLoginPrompt(page)) {
+        return;
+      }
+      if (await hasCustomerSearchFields(page)) {
+        return;
+      }
     }
   }
 
   const clickedCustomerSearch = await clickFirstMatchingSelector(page, CUSTOMER_SEARCH_NAV_SELECTORS);
   if (clickedCustomerSearch) {
-    await page.waitForTimeout(1400);
+    await page.waitForTimeout(1800);
   }
 }
 
@@ -403,6 +495,10 @@ async function assertOnCustomerSearchPage(
   targetUrl: string
 ): Promise<void> {
   if (await hasLoginPrompt(page)) {
+    if (await tryRecoverViaTradeAllySso(page, targetUrl)) {
+      return;
+    }
+
     throw new Error(
       `SCE login required for ${targetUrl}. Refresh session JSON from an authenticated dsmcentral login.`
     );
@@ -436,6 +532,10 @@ async function assertOnCustomerSearchPage(
     }
 
     if (waitResult === 'login' || (await hasLoginPrompt(page))) {
+      if (await tryRecoverViaTradeAllySso(page, targetUrl)) {
+        return;
+      }
+
       throw new Error(
         `SCE login required for ${targetUrl}. Refresh session JSON from an authenticated dsmcentral login.`
       );
@@ -451,17 +551,16 @@ async function assertOnCustomerSearchPage(
     await tryRecoverCustomerSearchPage(page, targetUrl);
 
     if (await hasLoginPrompt(page)) {
+      if (await tryRecoverViaTradeAllySso(page, targetUrl)) {
+        return;
+      }
+
       throw new Error(
         `SCE login required for ${targetUrl}. Refresh session JSON from an authenticated dsmcentral login.`
       );
     }
 
     if (await hasCustomerSearchFields(page)) {
-      return;
-    }
-
-    const recoveredPath = normalizePath(new URL(page.url()).pathname);
-    if (recoveredPath === expectedPath) {
       return;
     }
 
@@ -583,7 +682,13 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
         page.waitForTimeout(2000),
       ]).catch(() => undefined);
 
+      await waitForTradeAllyLoginFlowCompletion(page);
+      await page.waitForTimeout(1200);
+
       const targetUrl = resolveCustomerSearchUrl();
+      if (isOnTradeAllyHost(page.url()) || (await hasTradeAllySession(page))) {
+        await runDsmSsoBridge(page, targetUrl);
+      }
       await ensureCustomerSearchReady(page, targetUrl);
 
       const storageState = await context.storageState();
