@@ -12,6 +12,7 @@ import type {
   MobileRoutePlanResponse,
   ExtractionSession,
   ExtractionRun,
+  SessionValidationResult,
 } from '../types';
 import { config, getCloudUrl } from './config';
 import { createAPIClient, APIError } from './api-client';
@@ -221,6 +222,15 @@ class SCE2API {
 
   async listExtractionSessions(): Promise<ExtractionSession[]> {
     return this.request<ExtractionSession[]>('/cloud-extraction/sessions');
+  }
+
+  async validateExtractionSession(sessionId: number): Promise<SessionValidationResult> {
+    return this.request<SessionValidationResult>(
+      `/cloud-extraction/sessions/${sessionId}/validate`,
+      {
+        method: 'POST',
+      }
+    );
   }
 
   async createCloudExtractionRun(payload: {

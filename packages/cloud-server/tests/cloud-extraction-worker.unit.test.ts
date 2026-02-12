@@ -212,4 +212,207 @@ describe('Cloud Extraction Worker', () => {
     expect(failedRun.items[0].status).toBe('FAILED');
     expect(failedRun.items[0].error).toContain('No customer data extracted');
   });
+
+  it('calls client.dispose after run processing', async () => {
+    const { prisma } = await import('../src/lib/database.js');
+    const { encryptJson } = await import('../src/lib/encryption.js');
+    const { processExtractionRun } = await import('../src/lib/cloud-extraction-worker.js');
+
+    const property = await prisma.property.create({
+      data: {
+        addressFull: '999 Dispose Verify St, Santa Ana, CA 92701',
+        streetNumber: '999',
+        streetName: 'Dispose Verify St',
+        zipCode: '92701',
+      },
+    });
+
+    const session = await prisma.extractionSession.create({
+      data: {
+        label: 'Dispose Session',
+        encryptedStateJson: encryptJson('{"cookies":[]}', process.env.SCE_SESSION_ENCRYPTION_KEY!),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    const run = await prisma.extractionRun.create({
+      data: {
+        sessionId: session.id,
+        totalCount: 1,
+        items: {
+          create: [{ propertyId: property.id }],
+        },
+      },
+    });
+
+    let disposeCalls = 0;
+    await processExtractionRun(run.id, {
+      client: {
+        extractCustomerData: async () => ({
+          customerName: 'Dispose Test',
+          customerPhone: '(555) 999-0000',
+          customerEmail: 'dispose@test.com',
+        }),
+        dispose: async () => {
+          disposeCalls += 1;
+        },
+      },
+    });
+
+    expect(disposeCalls).toBe(1);
+  });
+
+  it('fails fast and marks remaining queued items when session access is invalid', async () => {
+    const { prisma } = await import('../src/lib/database.js');
+    const { encryptJson } = await import('../src/lib/encryption.js');
+    const { processExtractionRun } = await import('../src/lib/cloud-extraction-worker.js');
+
+    const properties = await Promise.all([
+      prisma.property.create({
+        data: {
+          addressFull: '100 Shared Failure St, Santa Ana, CA 92701',
+          streetNumber: '100',
+          streetName: 'Shared Failure St',
+          zipCode: '92701',
+        },
+      }),
+      prisma.property.create({
+        data: {
+          addressFull: '101 Shared Failure St, Santa Ana, CA 92701',
+          streetNumber: '101',
+          streetName: 'Shared Failure St',
+          zipCode: '92701',
+        },
+      }),
+      prisma.property.create({
+        data: {
+          addressFull: '102 Shared Failure St, Santa Ana, CA 92701',
+          streetNumber: '102',
+          streetName: 'Shared Failure St',
+          zipCode: '92701',
+        },
+      }),
+    ]);
+
+    const session = await prisma.extractionSession.create({
+      data: {
+        label: 'Shared Failure Session',
+        encryptedStateJson: encryptJson('{"cookies":[]}', process.env.SCE_SESSION_ENCRYPTION_KEY!),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    const run = await prisma.extractionRun.create({
+      data: {
+        sessionId: session.id,
+        totalCount: properties.length,
+        items: {
+          create: properties.map((property) => ({ propertyId: property.id })),
+        },
+      },
+      include: {
+        items: {
+          orderBy: { id: 'asc' },
+        },
+      },
+    });
+
+    let attempts = 0;
+    await processExtractionRun(run.id, {
+      client: {
+        extractCustomerData: async () => {
+          attempts += 1;
+          throw new Error(
+            'SCE login succeeded but landed on https://sce.dsmcentral.com/onsite/ instead of https://sce.dsmcentral.com/onsite/customer-search. This SCE account/session does not have access to customer-search.'
+          );
+        },
+      },
+    });
+
+    const updatedRun = await prisma.extractionRun.findUniqueOrThrow({
+      where: { id: run.id },
+      include: { items: { orderBy: { id: 'asc' } } },
+    });
+
+    expect(attempts).toBe(1);
+    expect(updatedRun.processedCount).toBe(3);
+    expect(updatedRun.successCount).toBe(0);
+    expect(updatedRun.failureCount).toBe(3);
+    expect(updatedRun.status).toBe('FAILED');
+    expect(updatedRun.errorSummary).toContain('does not have access to customer-search');
+    expect(updatedRun.items[0].status).toBe('FAILED');
+    expect(updatedRun.items[0].error).toContain('does not have access to customer-search');
+    expect(updatedRun.items[1].status).toBe('FAILED');
+    expect(updatedRun.items[1].error).toContain('Skipped after shared SCE session failure');
+    expect(updatedRun.items[2].status).toBe('FAILED');
+    expect(updatedRun.items[2].error).toContain('Skipped after shared SCE session failure');
+  });
+
+  it('fails fast when extractor returns an unexpected SCE page error', async () => {
+    const { prisma } = await import('../src/lib/database.js');
+    const { encryptJson } = await import('../src/lib/encryption.js');
+    const { processExtractionRun } = await import('../src/lib/cloud-extraction-worker.js');
+
+    const properties = await Promise.all([
+      prisma.property.create({
+        data: {
+          addressFull: '110 Unexpected Page St, Santa Ana, CA 92701',
+          streetNumber: '110',
+          streetName: 'Unexpected Page St',
+          zipCode: '92701',
+        },
+      }),
+      prisma.property.create({
+        data: {
+          addressFull: '111 Unexpected Page St, Santa Ana, CA 92701',
+          streetNumber: '111',
+          streetName: 'Unexpected Page St',
+          zipCode: '92701',
+        },
+      }),
+    ]);
+
+    const session = await prisma.extractionSession.create({
+      data: {
+        label: 'Unexpected Page Session',
+        encryptedStateJson: encryptJson('{"cookies":[]}', process.env.SCE_SESSION_ENCRYPTION_KEY!),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    const run = await prisma.extractionRun.create({
+      data: {
+        sessionId: session.id,
+        totalCount: properties.length,
+        items: {
+          create: properties.map((property) => ({ propertyId: property.id })),
+        },
+      },
+    });
+
+    let attempts = 0;
+    await processExtractionRun(run.id, {
+      client: {
+        extractCustomerData: async () => {
+          attempts += 1;
+          throw new Error(
+            'Unexpected SCE page (https://sce.dsmcentral.com/onsite/). Expected https://sce.dsmcentral.com/onsite/customer-search. Login or account access may be missing.'
+          );
+        },
+      },
+    });
+
+    const updatedRun = await prisma.extractionRun.findUniqueOrThrow({
+      where: { id: run.id },
+      include: { items: { orderBy: { id: 'asc' } } },
+    });
+
+    expect(attempts).toBe(1);
+    expect(updatedRun.processedCount).toBe(2);
+    expect(updatedRun.failureCount).toBe(2);
+    expect(updatedRun.status).toBe('FAILED');
+    expect(updatedRun.errorSummary).toContain('Unexpected SCE page');
+    expect(updatedRun.items[1].status).toBe('FAILED');
+    expect(updatedRun.items[1].error).toContain('Skipped after shared SCE session failure');
+  });
 });

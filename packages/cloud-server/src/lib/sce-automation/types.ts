@@ -16,4 +16,5 @@ export interface SCEAutomationClient {
     address: SCEAutomationAddressInput,
     options?: { storageStateJson?: string }
   ): Promise<SCEExtractionResult>;
+  dispose?(): Promise<void>;
 }

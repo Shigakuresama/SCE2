@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { APIError, api } from '../lib/api';
-import type { ExtractionRun, ExtractionSession, Property } from '../types';
+import type {
+  ExtractionRun,
+  ExtractionSession,
+  Property,
+  SessionValidationResult,
+} from '../types';
 
 interface CloudExtractionPanelProps {
   pendingProperties: Property[];
@@ -56,7 +61,9 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
   const [startingRun, setStartingRun] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [creatingBridgeSession, setCreatingBridgeSession] = useState(false);
+  const [validatingSession, setValidatingSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionValidation, setSessionValidation] = useState<SessionValidationResult | null>(null);
   const [sessionLabel, setSessionLabel] = useState('SCE Operator Session');
   const [sessionStateJson, setSessionStateJson] = useState('');
   const [sessionExpiresAt, setSessionExpiresAt] = useState(
@@ -72,6 +79,10 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
   useEffect(() => {
     setPropertyIdsInput(defaultPropertyIds);
   }, [defaultPropertyIds]);
+
+  useEffect(() => {
+    setSessionValidation(null);
+  }, [selectedSessionId]);
 
   const loadSessions = async () => {
     setLoadingSessions(true);
@@ -172,6 +183,7 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
       setSessions((prev) => [created, ...prev]);
       setSelectedSessionId(created.id);
       setSessionStateJson('');
+      setSessionValidation(null);
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
@@ -213,10 +225,29 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
       setSessions((prev) => [created, ...prev]);
       setSelectedSessionId(created.id);
       setBridgePassword('');
+      setSessionValidation(null);
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
       setCreatingBridgeSession(false);
+    }
+  };
+
+  const handleValidateSession = async () => {
+    if (!selectedSessionId) {
+      setError('Select a session before validating.');
+      return;
+    }
+
+    setError(null);
+    setValidatingSession(true);
+    try {
+      const validation = await api.validateExtractionSession(selectedSessionId);
+      setSessionValidation(validation);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setValidatingSession(false);
     }
   };
 
@@ -417,6 +448,14 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
       <div className="flex items-center gap-3">
         <button
           type="button"
+          onClick={handleValidateSession}
+          disabled={validatingSession || !selectedSessionId}
+          className="rounded-md border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+        >
+          {validatingSession ? 'Validating...' : 'Validate Session'}
+        </button>
+        <button
+          type="button"
           onClick={handleRun}
           disabled={startingRun || !selectedSessionId}
           className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
@@ -430,6 +469,27 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
         )}
       </div>
 
+      {sessionValidation && (
+        <div
+          className={
+            sessionValidation.valid
+              ? 'rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800'
+              : 'rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800'
+          }
+        >
+          <p className="font-medium">
+            {sessionValidation.valid
+              ? 'Session is valid for SCE customer-search.'
+              : 'Session is not valid for SCE customer-search.'}
+          </p>
+          <p>{sessionValidation.message}</p>
+          <p className="mt-1 text-xs opacity-80">
+            Checked: {new Date(sessionValidation.checkedAt).toLocaleString()}
+            {sessionValidation.currentUrl ? ' | Current URL: ' + sessionValidation.currentUrl : ''}
+          </p>
+        </div>
+      )}
+
       {currentRun && (
         <div className="rounded-md border border-gray-200 bg-white p-3 text-sm text-gray-800">
           <p>
@@ -439,6 +499,11 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
             Processed {currentRun.processedCount}/{currentRun.totalCount} | Success:{' '}
             {currentRun.successCount} | Failed: {currentRun.failureCount}
           </p>
+          {currentRun.errorSummary && (
+            <p className="mt-1 text-red-700">
+              Reason: {currentRun.errorSummary}
+            </p>
+          )}
         </div>
       )}
 

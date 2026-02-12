@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/database.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { NotFoundError, ValidationError } from '../types/errors.js';
-import { encryptJson } from '../lib/encryption.js';
+import { decryptJson, encryptJson } from '../lib/encryption.js';
 import { config } from '../lib/config.js';
 import { logger } from '../lib/logger.js';
 import { processExtractionRun } from '../lib/cloud-extraction-worker.js';
@@ -15,6 +15,10 @@ type SessionCredentialsInput = {
   password: string;
 };
 
+type SessionValidationInput = {
+  storageStateJson: string;
+};
+
 let runLauncher = async (runId: number) => {
   await processExtractionRun(runId, {
     client: new PlaywrightSCEAutomationClient(),
@@ -25,6 +29,12 @@ let sessionStateFactory = async (
 ): Promise<string> => {
   const client = new PlaywrightSCEAutomationClient();
   return client.createStorageStateFromCredentials(credentials);
+};
+let sessionValidator = async (
+  input: SessionValidationInput
+): Promise<{ currentUrl: string }> => {
+  const client = new PlaywrightSCEAutomationClient();
+  return client.validateSessionAccess({ storageStateJson: input.storageStateJson });
 };
 let cloudExtractionEnabledOverride: boolean | null = null;
 
@@ -44,6 +54,17 @@ export function setCloudExtractionSessionStateFactoryForTests(
   sessionStateFactory = factory ?? (async (credentials: SessionCredentialsInput) => {
     const client = new PlaywrightSCEAutomationClient();
     return client.createStorageStateFromCredentials(credentials);
+  });
+}
+
+export function setCloudExtractionSessionValidatorForTests(
+  validator:
+    | ((input: SessionValidationInput) => Promise<{ currentUrl: string }>)
+    | null
+) {
+  sessionValidator = validator ?? (async (input: SessionValidationInput) => {
+    const client = new PlaywrightSCEAutomationClient();
+    return client.validateSessionAccess({ storageStateJson: input.storageStateJson });
   });
 }
 
@@ -217,6 +238,22 @@ cloudExtractionRoutes.post(
 
       throw new ValidationError(`Unable to create session from SCE login: ${reason}`);
     }
+
+    try {
+      await sessionValidator({ storageStateJson: sessionStateJson });
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Unknown login bridge validation failure while testing customer-search access.';
+
+      logger.warn('Cloud extraction login bridge validation failed', {
+        username,
+        reason,
+      });
+
+      throw new ValidationError(`Unable to create session from SCE login: ${reason}`);
+    }
     const encryptedStateJson = encryptJson(sessionStateJson, encryptionKey);
 
     const session = await prisma.extractionSession.create({
@@ -255,6 +292,89 @@ cloudExtractionRoutes.get(
     });
 
     res.json({ success: true, data: sessions });
+  })
+);
+
+cloudExtractionRoutes.post(
+  '/sessions/:id/validate',
+  asyncHandler(async (req, res) => {
+    const sessionId = parseSessionId(Number(req.params.id));
+
+    const session = await prisma.extractionSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        isActive: true,
+        expiresAt: true,
+        encryptedStateJson: true,
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundError('ExtractionSession', sessionId);
+    }
+
+    const checkedAt = new Date().toISOString();
+    if (!session.isActive) {
+      return res.json({
+        success: true,
+        data: {
+          sessionId,
+          valid: false,
+          checkedAt,
+          message: 'Session is inactive. Create a new login bridge session.',
+        },
+      });
+    }
+
+    if (session.expiresAt.getTime() <= Date.now()) {
+      return res.json({
+        success: true,
+        data: {
+          sessionId,
+          valid: false,
+          checkedAt,
+          message: 'Session expired. Create a new login bridge session.',
+        },
+      });
+    }
+
+    const sessionStateJson = decryptJson(
+      session.encryptedStateJson,
+      requireEncryptionKey()
+    );
+
+    try {
+      const result = await sessionValidator({ storageStateJson: sessionStateJson });
+      return res.json({
+        success: true,
+        data: {
+          sessionId,
+          valid: true,
+          checkedAt,
+          message: 'Session can access SCE customer-search.',
+          currentUrl: result.currentUrl,
+        },
+      });
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Unknown session validation failure.';
+      logger.warn('Cloud extraction session validation failed', {
+        sessionId,
+        reason,
+      });
+      return res.json({
+        success: true,
+        data: {
+          sessionId,
+          valid: false,
+          checkedAt,
+          message: reason,
+        },
+      });
+    }
   })
 );
 

@@ -63,7 +63,9 @@ Use this flow for server-side extraction without the extension:
 2. Open webapp Queue page and use the **Cloud Extraction** panel.
 3. Create an encrypted session (recommended: **Login Bridge**):
    - In webapp, use **Create session via login bridge**.
-   - Enter SCE username/password + expiry; cloud performs login and stores encrypted session state.
+   - Enter SCE username/password + expiry; cloud performs login.
+   - Cloud now validates that the resulting session can actually open `/onsite/customer-search` before saving.
+   - If validation fails, no session is saved and the API returns a direct error reason.
    - Credentials are only used for this request and are not persisted in `ExtractionSession`.
 4. Fallback (manual JSON):
    - Start login from:
@@ -72,11 +74,14 @@ Use this flow for server-side extraction without the extension:
      `https://sce.dsmcentral.com/onsite/customer-search`
    - Capture storage-state JSON only after you can see the authenticated SCE flow.
    - If runs fail with `Unexpected SCE page .../onsite/`, refresh login and regenerate session JSON.
-5. Select the session, verify property IDs, then click **Run Cloud Extraction**.
-6. Monitor run status and counters:
+5. Select the session and click **Validate Session**.
+   - Expected success: `Session can access SCE customer-search.`
+   - If validation fails, regenerate the session before running extraction.
+6. Verify property IDs, then click **Run Cloud Extraction**.
+7. Monitor run status and counters:
    - `QUEUED` / `RUNNING` / `COMPLETED` / `COMPLETED_WITH_ERRORS` / `FAILED`
-7. Confirm successful properties moved to `READY_FOR_FIELD`.
-8. For failed items, keep them in `PENDING_SCRAPE` and retry in another run after fixing selector/session issues.
+8. Confirm successful properties moved to `READY_FOR_FIELD`.
+9. For failed items, keep them in `PENDING_SCRAPE` and retry in another run after fixing selector/session issues.
 
 ### Cloud Extraction Rollback (Extension Fallback)
 

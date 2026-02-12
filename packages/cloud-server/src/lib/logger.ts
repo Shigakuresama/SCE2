@@ -31,8 +31,10 @@ const consoleFormat = winston.format.combine(
 );
 
 // Create logger instance
+const isProduction = config.nodeEnv === 'production';
+
 export const logger = winston.createLogger({
-  level: config.nodeEnv === 'production' ? 'info' : 'debug',
+  level: isProduction ? 'info' : 'debug',
   format: logFormat,
   transports: [
     // Write all logs to combined.log
@@ -51,13 +53,12 @@ export const logger = winston.createLogger({
   ],
 });
 
-// Add console transport in development
-if (config.nodeEnv !== 'production') {
-  logger.add(
-    new winston.transports.Console({
-      format: consoleFormat,
-    })
-  );
-}
+// Add console transport in all environments so Render can surface runtime errors
+logger.add(
+  new winston.transports.Console({
+    level: isProduction ? 'info' : 'debug',
+    format: isProduction ? logFormat : consoleFormat,
+  })
+);
 
 export default logger;
