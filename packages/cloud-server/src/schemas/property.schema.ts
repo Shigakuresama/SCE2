@@ -46,7 +46,10 @@ export const PatchPropertySchema = z.object({
   routeId: z.number().int().positive().nullable().optional(),
   customerName: z.string().optional(),
   customerPhone: z.string().optional(),
-  customerEmail: z.string().email('Invalid email format').optional().or(z.literal('')),
+  customerEmail: z.union([
+    z.string().email('Invalid email format'),
+    z.literal('')
+  ]).optional(),
   customerAge: z.number().int().min(0).max(150).optional().nullable(),
   fieldNotes: z.string().optional(),
   dataExtracted: z.boolean().optional(),

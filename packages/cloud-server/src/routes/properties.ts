@@ -17,6 +17,7 @@ export const propertyRoutes = Router();
 // Type inference from schemas
 type PropertyQuery = z.infer<typeof PropertyQuerySchema>;
 type BatchCreateBody = z.infer<typeof BatchCreatePropertySchema>;
+type BatchAddress = z.infer<typeof BatchAddressSchema>;
 type PatchBody = z.infer<typeof PatchPropertySchema>;
 type IdParams = z.infer<typeof IdParamSchema>;
 
@@ -122,7 +123,7 @@ propertyRoutes.post(
 
     // Bulk create
     const properties = await prisma.property.createMany({
-      data: addresses.map((addr: z.infer<typeof BatchAddressSchema>) => ({
+      data: addresses.map((addr: BatchAddress) => ({
         addressFull: addr.addressFull,
         streetNumber: addr.streetNumber,
         streetName: addr.streetName,
@@ -138,7 +139,7 @@ propertyRoutes.post(
     // Fetch created properties to return them
     const createdProperties = await prisma.property.findMany({
       where: {
-        addressFull: { in: addresses.map((a: z.infer<typeof BatchAddressSchema>) => a.addressFull) },
+        addressFull: { in: addresses.map((a: BatchAddress) => a.addressFull) },
       },
       orderBy: { createdAt: 'desc' },
       take: addresses.length,
@@ -177,7 +178,7 @@ propertyRoutes.delete(
   asyncHandler(async (req, res) => {
     const { status } = req.query;
 
-    const where: any = {};
+    const where: { status?: string } = {};
     if (status) {
       where.status = status as string;
     }
