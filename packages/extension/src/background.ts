@@ -79,6 +79,16 @@ interface SubmitResponse {
   error?: string;
 }
 
+interface CustomerSearchReadyResponse {
+  success: boolean;
+  data?: {
+    ready: boolean;
+    currentUrl: string;
+    reason?: string;
+  };
+  error?: string;
+}
+
 const SCE_CUSTOMER_SEARCH_URL = 'https://sce.dsmcentral.com/onsite/customer-search';
 
 // ==========================================
@@ -559,6 +569,59 @@ async function openSceCustomerSearchTab(): Promise<chrome.tabs.Tab> {
   return loadedTab;
 }
 
+async function checkSceSessionReadiness(): Promise<{
+  ready: boolean;
+  currentUrl: string;
+  reason?: string;
+}> {
+  let tabId: number | null = null;
+  let currentUrl = SCE_CUSTOMER_SEARCH_URL;
+
+  try {
+    const tab = await chrome.tabs.create({
+      url: SCE_CUSTOMER_SEARCH_URL,
+      active: false,
+    });
+
+    if (!tab.id) {
+      throw new Error('Failed to open SCE customer-search tab for session check.');
+    }
+
+    tabId = tab.id;
+    await waitForTabLoad(tabId);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    const loadedTab = await chrome.tabs.get(tabId);
+    currentUrl = loadedTab.url ?? currentUrl;
+
+    const response = await sendTabMessageWithRetry<CustomerSearchReadyResponse>(
+      tabId,
+      { action: 'CHECK_CUSTOMER_SEARCH_READY' },
+      4
+    );
+
+    if (!response.success || !response.data) {
+      return {
+        ready: false,
+        currentUrl,
+        reason: response.error || 'Session check did not return a valid readiness payload.',
+      };
+    }
+
+    return response.data;
+  } catch (error) {
+    return {
+      ready: false,
+      currentUrl,
+      reason: error instanceof Error ? error.message : 'Unknown session check error.',
+    };
+  } finally {
+    if (tabId !== null) {
+      await closeTab(tabId);
+    }
+  }
+}
+
 async function closeTab(tabId: number): Promise<void> {
   try {
     await chrome.tabs.remove(tabId);
@@ -855,6 +918,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'POLL_NOW':
       poll().then(() => sendResponse({ success: true }));
+      return true;
+
+    case 'CHECK_SCE_SESSION_READY':
+      checkSceSessionReadiness()
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((error) =>
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown session check error',
+          })
+        );
       return true;
 
     // ==========================================

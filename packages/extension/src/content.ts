@@ -35,7 +35,11 @@ import {
 } from './lib/fill-orchestrator.js';
 import type { BannerController as FillBannerController } from './lib/fill-orchestrator.js';
 import { SCE1_DEFAULTS } from './lib/sce1-logic.js';
-import { readFieldValue, waitForElement as waitForElementUtil } from './lib/dom-utils.js';
+import {
+  findField,
+  readFieldValue,
+  waitForElement as waitForElementUtil,
+} from './lib/dom-utils.js';
 import { getConfig } from './lib/storage.js';
 
 // ==========================================
@@ -781,6 +785,54 @@ async function extractCaseId(): Promise<string> {
   }
 }
 
+function checkCustomerSearchReadiness(): {
+  ready: boolean;
+  currentUrl: string;
+  reason?: string;
+} {
+  const currentUrl = window.location.href;
+  const lowerUrl = currentUrl.toLowerCase();
+  const onCustomerSearch = lowerUrl.includes('/onsite/customer-search');
+
+  const hasStreetNumberField = Boolean(findField('Street Number'));
+  const hasStreetNameField = Boolean(findField('Street Name'));
+  const hasZipField = Boolean(findField('Zip Code') || findField('Zip'));
+  const hasAddressField = hasStreetNumberField || hasStreetNameField;
+
+  if (hasAddressField && hasZipField) {
+    return {
+      ready: true,
+      currentUrl,
+    };
+  }
+
+  const hasLoginForm = Boolean(
+    document.querySelector('input#login, input[name*="login" i], input[type="password"]')
+  );
+
+  if (hasLoginForm || lowerUrl.includes('/tradeally/s/login') || lowerUrl.includes('/auth/login')) {
+    return {
+      ready: false,
+      currentUrl,
+      reason: 'Login required in this browser session.',
+    };
+  }
+
+  if (!onCustomerSearch) {
+    return {
+      ready: false,
+      currentUrl,
+      reason: 'Not on SCE customer-search page.',
+    };
+  }
+
+  return {
+    ready: false,
+    currentUrl,
+    reason: 'Customer-search fields are not available yet.',
+  };
+}
+
 // ==========================================
 // MESSAGE HANDLING
 // ==========================================
@@ -817,6 +869,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const section = getActiveSectionTitle();
       sendResponse({ section });
       break;
+
+    case 'CHECK_CUSTOMER_SEARCH_READY':
+      sendResponse({
+        success: true,
+        data: checkCustomerSearchReadiness(),
+      });
+      return true;
 
     // NEW: Fill all sections
     case 'FILL_ALL_SECTIONS':

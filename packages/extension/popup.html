@@ -78,6 +78,37 @@
       color: #666;
       margin-top: 8px;
     }
+
+    .session-status {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      border: 1px solid transparent;
+    }
+
+    .session-status.checking {
+      background: #fff8e1;
+      border-color: #ffe082;
+      color: #8d6e63;
+    }
+
+    .session-status.ready {
+      background: #e8f5e9;
+      border-color: #a5d6a7;
+      color: #2e7d32;
+    }
+
+    .session-status.not-ready {
+      background: #ffebee;
+      border-color: #ef9a9a;
+      color: #c62828;
+    }
+
+    .session-status-title {
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
   </style>
 </head>
 <body>
@@ -92,6 +123,11 @@
     <div>Submit Queue: <span id="submit-count">0</span></div>
   </div>
 
+  <div id="session-status" class="session-status checking">
+    <div id="session-status-title" class="session-status-title">Session: Checking...</div>
+    <div id="session-status-detail">Verifying access to SCE customer-search.</div>
+  </div>
+
   <div class="config-section">
     <label for="api-url">API Base URL</label>
     <input type="text" id="api-url" placeholder="http://localhost:3333" />
@@ -103,6 +139,7 @@
   </div>
 
   <button id="toggle-btn">Start Processing</button>
+  <button id="check-session-btn" style="margin-top: 8px; background: #455a64;">Check Session</button>
   <button id="open-customer-search-btn" style="margin-top: 8px; background: #1e88e5;">Open SCE Customer Search</button>
 
   <button id="show-banner-btn" style="margin-top: 12px; background: #4caf50;">📋 Show Form Assistant</button>
