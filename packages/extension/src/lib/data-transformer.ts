@@ -251,7 +251,7 @@ export function getDifferences<T extends Record<string, any>>(
  * Serialize data for storage
  */
 export function serializeForStorage(data: any): string {
-  return JSON.stringify(data, (key, value) => {
+  return JSON.stringify(data, (_key, value) => {
     // Handle Date objects
     if (value instanceof Date) {
       return { __type: 'Date', value: value.toISOString() };
@@ -264,7 +264,7 @@ export function serializeForStorage(data: any): string {
  * Deserialize data from storage
  */
 export function deserializeFromStorage(serialized: string): any {
-  return JSON.parse(serialized, (key, value) => {
+  return JSON.parse(serialized, (_key, value) => {
     // Handle Date objects
     if (value && typeof value === 'object' && value.__type === 'Date') {
       return new Date(value.value);

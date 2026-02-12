@@ -256,7 +256,7 @@ export function safeQuerySelector(
     required?: boolean;
   } = {}
 ): Element | null {
-  const { timeout: timeoutMs = 0, context, required = false } = options;
+  const { timeout: _timeoutMs = 0, context, required = false } = options;
 
   try {
     const element = document.querySelector(selector);
@@ -284,7 +284,7 @@ export function safeWaitForElement(
     required?: boolean;
   } = {}
 ): Promise<Element | null> {
-  const { timeout: timeoutMs = 10000, context, required = false } = options;
+  const { timeout: timeoutMs = 10000, required = false } = options;
 
   return new Promise((resolve, reject) => {
     const element = document.querySelector(selector);

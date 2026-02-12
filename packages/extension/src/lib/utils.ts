@@ -17,7 +17,6 @@ export const SCEUtils = {
     hours += hoursToAdd;
 
     // Handle rollover
-    const daysToAdd = Math.floor(hours / 24);
     hours = hours % 24;
 
     // Convert back to 12-hour format

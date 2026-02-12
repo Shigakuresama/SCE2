@@ -5,15 +5,6 @@ import { SCEHelper } from './lib/sce-helper.js';
 import type { AdditionalCustomerInfo } from './lib/sections/additional-customer.js';
 import type { ProjectInfo } from './lib/sections/project.js';
 import type { TradeAllyInfo } from './lib/sections/trade-ally.js';
-import type { AssessmentInfo } from './lib/sections/assessment.js';
-import type { HouseholdInfo } from './lib/sections/household.js';
-import type { EnrollmentInfo } from './lib/sections/enrollment.js';
-import type { EquipmentInfo } from './lib/sections/equipment.js';
-import type { BasicEnrollmentInfo } from './lib/sections/basic-enrollment.js';
-import type { BonusInfo } from './lib/sections/bonus.js';
-import type { TermsInfo } from './lib/sections/terms.js';
-import type { CommentsInfo } from './lib/sections/comments.js';
-import type { StatusInfo } from './lib/sections/status.js';
 import { fetchZillowDataWithCache } from './lib/zillow-client.js';
 import {
   extractAssessmentInfo,
@@ -41,7 +32,6 @@ import {
   waitForElement as waitForElementUtil,
 } from './lib/dom-utils.js';
 import { getConfig } from './lib/storage.js';
-import { asyncHandler } from './lib/utils.js';
 import type {
   ScrapePropertyMessage,
   SubmitApplicationMessage,
@@ -55,26 +45,6 @@ import type {
 // TYPE DEFINITIONS
 // ==========================================
 // Message types imported from ./types/messages.js
-
-// ==========================================
-// SECTION MAPPING
-// ==========================================
-const SECTION_MAP: Record<string, string> = {
-  'Customer Information': 'customerInfo',
-  'Additional Customer Information': 'additionalInfo',
-  'Enrollment Information': 'enrollmentInfo',
-  'Household Members': 'household',
-  'Project Information': 'project',
-  'Trade Ally Information': 'tradeAlly',
-  'Assessment Questionnaire': 'assessment',
-  'Equipment Information': 'equipment',
-  'Basic Enrollment': 'basicEnrollment',
-  'Bonus Program': 'bonus',
-  'Terms and Conditions': 'terms',
-  'Upload Documents': 'uploads',
-  'Comments': 'comments',
-  'Status': 'status',
-};
 
 // ==========================================
 // DETECTION
@@ -792,7 +762,7 @@ function checkCustomerSearchReadiness(): {
 // ==========================================
 // MESSAGE HANDLING
 // ==========================================
-chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   console.log('Content script received:', message);
 
   switch (message.action) {

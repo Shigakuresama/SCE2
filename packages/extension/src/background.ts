@@ -20,7 +20,6 @@ import {
   getCurrentBatchId,
 } from './lib/route-state.js';
 import type {
-  Config,
   ScrapeJob,
   SubmitJob,
   QueueState,
@@ -792,7 +791,7 @@ getConfig().then(config => {
 // ==========================================
 // MESSAGE HANDLING
 // ==========================================
-chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   log('Background received message:', message);
 
   switch (message.action) {
@@ -809,7 +808,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
       break;
 
     case 'START_PROCESSING':
-      getConfig().then(config => {
+      getConfig().then(_config => {
         chrome.storage.sync.set({ autoProcess: true });
         startPolling();
         sendResponse({ success: true });

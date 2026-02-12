@@ -249,9 +249,7 @@ export async function processRouteBatch(
       console.log(`[Route] Processing chunk: ${index - chunk.length + 1}-${index} (${chunk.length} addresses)`);
 
       // Process chunk in parallel
-      const chunkPromises = chunk.map(async (address, chunkIndex) => {
-        const globalIndex = index - chunk.length + chunkIndex;
-
+      const chunkPromises = chunk.map(async (address) => {
         try {
           const result = await processRouteAddress(address, finalConfig, (update) => {
             // Update counters based on result

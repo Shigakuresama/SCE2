@@ -61,7 +61,7 @@ export async function closeTab(tabId: number): Promise<void> {
  * @param tabId - Tab ID to capture
  * @returns Promise resolving to base64 data URL
  */
-export async function captureScreenshot(tabId: number): Promise<string> {
+export async function captureScreenshot(_tabId: number): Promise<string> {
   return new Promise((resolve, reject) => {
     chrome.tabs.captureVisibleTab(chrome.windows.WINDOW_ID_CURRENT, { format: 'png' }, (dataUrl) => {
       if (dataUrl) {
