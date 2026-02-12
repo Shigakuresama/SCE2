@@ -297,7 +297,7 @@ export function validateTradeAllyInfo(data: Partial<TradeAllyInfo>): ValidationR
 /**
  * Validate Assessment Information
  */
-export function validateAssessmentInfo(data: Partial<AssessmentInfo>): ValidationResult {
+export function validateAssessmentInfo(_data: Partial<AssessmentInfo>): ValidationResult {
   const errors: ValidationError[] = [];
 
   // No specific validation needed for assessment checkboxes/selects

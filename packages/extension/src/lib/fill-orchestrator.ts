@@ -11,6 +11,7 @@
 
 import { SectionNavigator, getAvailableSections, getActiveSection } from './section-navigator.js';
 import { SCEHelper } from './sce-helper.js';
+import { ErrorAccumulator } from './error-accumulator.js';
 import { Toast } from './toast.js';
 import {
   fillFieldByLabel,
@@ -331,13 +332,14 @@ async function copyAlternatePhoneToContact(signal: AbortSignal): Promise<void> {
 async function fillSection(
   sectionName: string,
   propertyData: PropertyData,
-  signal: AbortSignal
+  signal: AbortSignal,
+  errors: ErrorAccumulator
 ): Promise<void> {
   if (signal.aborted) throw new Error('Stopped by user');
 
   console.log(`[FillOrchestrator] Filling section: ${sectionName}`);
 
-  const helper = new SCEHelper(signal);
+  const helper = new SCEHelper(signal, errors);
   const strategy = getStrategy(sectionName);
 
   if (strategy === 'skip') {
@@ -457,10 +459,11 @@ async function fillSection(
 export async function fillAllSections(
   propertyData: PropertyData,
   banner: BannerController
-): Promise<void> {
+): Promise<{ success: boolean; errors: ErrorAccumulator }> {
   console.log('[FillOrchestrator] Starting fill all sections');
 
   const signal = startFilling();
+  const errors = new ErrorAccumulator();
   banner.resetStopState();
 
   const navigator = new SectionNavigator();
@@ -495,7 +498,7 @@ export async function fillAllSections(
       }
 
       await waitForReady(2000);
-      await fillSection(section, propertyData, signal);
+      await fillSection(section, propertyData, signal, errors);
       await randomDelay(TIMING.betweenSections);
 
     } catch (error) {
@@ -508,6 +511,16 @@ export async function fillAllSections(
   }
 
   console.log('[FillOrchestrator] All sections filled successfully');
+
+  if (errors.hasErrors()) {
+    console.warn('[FillOrchestrator] Completed with errors:', errors.getSummary());
+    Toast.warning(errors.getSummary());
+  }
+
+  return {
+    success: !errors.hasErrors(),
+    errors,
+  };
 }
 
 // ==========================================
@@ -517,10 +530,11 @@ export async function fillAllSections(
 export async function fillCurrentSection(
   propertyData: PropertyData,
   banner: BannerController
-): Promise<string | null> {
+): Promise<{ section: string | null; success: boolean; errors: ErrorAccumulator }> {
   console.log('[FillOrchestrator] Starting fill current section');
 
   const signal = startFilling();
+  const errors = new ErrorAccumulator();
   banner.resetStopState();
 
   const currentSection = getActiveSection();
@@ -531,8 +545,18 @@ export async function fillCurrentSection(
   console.log(`[FillOrchestrator] Current section: ${currentSection}`);
   banner.setFilling(currentSection);
 
-  await fillSection(currentSection, propertyData, signal);
+  await fillSection(currentSection, propertyData, signal, errors);
 
   console.log('[FillOrchestrator] Current section filled successfully');
-  return currentSection;
+
+  if (errors.hasErrors()) {
+    console.warn('[FillOrchestrator] Section completed with errors:', errors.getSummary());
+    Toast.warning(errors.getSummary());
+  }
+
+  return {
+    section: currentSection,
+    success: !errors.hasErrors(),
+    errors,
+  };
 }

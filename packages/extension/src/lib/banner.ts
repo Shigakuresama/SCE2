@@ -7,11 +7,6 @@ import { getActiveSection } from './section-navigator.js';
 import { Toast } from './toast.js';
 
 /**
- * Banner state
- */
-type BannerState = 'idle' | 'filling' | 'success' | 'error' | 'stopped';
-
-/**
  * Banner Controller class
  * Creates and manages the banner DOM element
  */
@@ -458,7 +453,7 @@ export class BannerController {
   private dispatchStop(): void {
     chrome.runtime.sendMessage({
       action: 'STOP_FILLING',
-    }, (response) => {
+    }, (_response) => {
       if (chrome.runtime.lastError) {
         console.error('Failed to send STOP_FILLING message:', chrome.runtime.lastError);
       }

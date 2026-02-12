@@ -1,31 +1,49 @@
 import { Router } from 'express';
 import { prisma } from '../lib/database.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { NotFoundError, ValidationError } from '../types/errors.js';
+import { NotFoundError } from '../types/errors.js';
+import { validateBody, validateQuery, validateParams, IdParamSchema } from '../lib/validation.js';
+import {
+  CreatePropertySchema,
+  BatchCreatePropertySchema,
+  PatchPropertySchema,
+  PropertyQuerySchema,
+  BatchAddressSchema,
+  DeleteAllQuerySchema,
+} from '../schemas/property.schema.js';
+import z from 'zod';
 
 export const propertyRoutes = Router();
+
+// Type inference from schemas
+type PropertyQuery = z.infer<typeof PropertyQuerySchema>;
+type BatchCreateBody = z.infer<typeof BatchCreatePropertySchema>;
+type BatchAddress = z.infer<typeof BatchAddressSchema>;
+type PatchBody = z.infer<typeof PatchPropertySchema>;
+type IdParams = z.infer<typeof IdParamSchema>;
 
 // GET /api/properties - List all properties with optional filters
 propertyRoutes.get(
   '/',
+  validateQuery(PropertyQuerySchema),
   asyncHandler(async (req, res) => {
-    const { status, routeId, limit = 50, offset = 0 } = req.query;
+    const { status, routeId, limit, offset } = req.query as unknown as PropertyQuery;
 
-    const where: any = {};
+    const where: Record<string, unknown> = {};
 
     if (status) {
-      where.status = status as string;
+      where.status = status;
     }
 
     if (routeId) {
-      where.routeId = parseInt(routeId as string);
+      where.routeId = parseInt(routeId, 10);
     }
 
     const [properties, total] = await Promise.all([
       prisma.property.findMany({
         where,
-        take: parseInt(limit as string),
-        skip: parseInt(offset as string),
+        take: parseInt(limit, 10),
+        skip: parseInt(offset, 10),
         orderBy: { createdAt: 'asc' },
         include: {
           documents: true,
@@ -37,7 +55,7 @@ propertyRoutes.get(
     res.json({
       success: true,
       data: properties,
-      meta: { total, limit: parseInt(limit as string), offset: parseInt(offset as string) },
+      meta: { total, limit: parseInt(limit, 10), offset: parseInt(offset, 10) },
     });
   })
 );
@@ -45,14 +63,17 @@ propertyRoutes.get(
 // GET /api/properties/:id - Get single property by ID
 propertyRoutes.get(
   '/:id',
+  validateParams(IdParamSchema),
   asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as IdParams;
+
     const property = await prisma.property.findUnique({
-      where: { id: parseInt(req.params.id) },
+      where: { id },
       include: { documents: true },
     });
 
     if (!property) {
-      throw new NotFoundError('Property', req.params.id);
+      throw new NotFoundError('Property', String(id));
     }
 
     res.json({ success: true, data: property });
@@ -62,6 +83,7 @@ propertyRoutes.get(
 // POST /api/properties - Create single property
 propertyRoutes.post(
   '/',
+  validateBody(CreatePropertySchema),
   asyncHandler(async (req, res) => {
     const {
       addressFull,
@@ -73,13 +95,8 @@ propertyRoutes.post(
       latitude,
       longitude,
       routeId,
+      customerEmail,
     } = req.body;
-
-    if (!addressFull || !streetNumber || !streetName || !zipCode) {
-      throw new ValidationError(
-        'Missing required fields: addressFull, streetNumber, streetName, zipCode'
-      );
-    }
 
     const property = await prisma.property.create({
       data: {
@@ -92,6 +109,7 @@ propertyRoutes.post(
         latitude,
         longitude,
         routeId,
+        customerEmail,
       },
     });
 
@@ -102,25 +120,13 @@ propertyRoutes.post(
 // POST /api/properties/batch - Create multiple properties (batch import)
 propertyRoutes.post(
   '/batch',
+  validateBody(BatchCreatePropertySchema),
   asyncHandler(async (req, res) => {
-    const { addresses } = req.body;
-
-    if (!Array.isArray(addresses) || addresses.length === 0) {
-      throw new ValidationError('addresses must be a non-empty array');
-    }
-
-    // Validate each address
-    for (const addr of addresses) {
-      if (!addr.addressFull || !addr.streetNumber || !addr.streetName || !addr.zipCode) {
-        throw new ValidationError(
-          'Each address must have addressFull, streetNumber, streetName, zipCode'
-        );
-      }
-    }
+    const { addresses } = req.body as BatchCreateBody;
 
     // Bulk create
     const properties = await prisma.property.createMany({
-      data: addresses.map((addr: any) => ({
+      data: addresses.map((addr: BatchAddress) => ({
         addressFull: addr.addressFull,
         streetNumber: addr.streetNumber,
         streetName: addr.streetName,
@@ -136,7 +142,7 @@ propertyRoutes.post(
     // Fetch created properties to return them
     const createdProperties = await prisma.property.findMany({
       where: {
-        addressFull: { in: addresses.map((a: any) => a.addressFull) },
+        addressFull: { in: addresses.map((a: BatchAddress) => a.addressFull) },
       },
       orderBy: { createdAt: 'desc' },
       take: addresses.length,
@@ -153,12 +159,14 @@ propertyRoutes.post(
 // PATCH /api/properties/:id - Update property
 propertyRoutes.patch(
   '/:id',
+  validateParams(IdParamSchema),
+  validateBody(PatchPropertySchema),
   asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const updates = req.body;
+    const { id } = req.params as unknown as IdParams;
+    const updates = req.body as PatchBody;
 
     const property = await prisma.property.update({
-      where: { id: parseInt(id) },
+      where: { id },
       data: updates,
     });
 
@@ -170,10 +178,11 @@ propertyRoutes.patch(
 // MUST come before /:id route to avoid "all" being treated as an ID
 propertyRoutes.delete(
   '/all',
+  validateQuery(DeleteAllQuerySchema),
   asyncHandler(async (req, res) => {
     const { status } = req.query;
 
-    const where: any = {};
+    const where: { status?: string } = {};
     if (status) {
       where.status = status as string;
     }
@@ -193,8 +202,9 @@ propertyRoutes.delete(
 // DELETE /api/properties/:id - Delete property
 propertyRoutes.delete(
   '/:id',
+  validateParams(IdParamSchema),
   asyncHandler(async (req, res) => {
-    const id = parseInt(req.params.id);
+    const { id } = req.params as unknown as IdParams;
 
     // Check if property exists first
     const property = await prisma.property.findUnique({
@@ -202,7 +212,7 @@ propertyRoutes.delete(
     });
 
     if (!property) {
-      throw new NotFoundError('Property', req.params.id);
+      throw new NotFoundError('Property', String(id));
     }
 
     await prisma.property.delete({
@@ -216,14 +226,17 @@ propertyRoutes.delete(
 // GET /api/properties/:id/mobile-data - Get property data for mobile view
 propertyRoutes.get(
   '/:id/mobile-data',
+  validateParams(IdParamSchema),
   asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as IdParams;
+
     const property = await prisma.property.findUnique({
-      where: { id: parseInt(req.params.id) },
+      where: { id },
       include: { documents: true },
     });
 
     if (!property) {
-      throw new NotFoundError('Property', req.params.id);
+      throw new NotFoundError('Property', String(id));
     }
 
     // Return mobile-optimized data

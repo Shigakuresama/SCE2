@@ -17,7 +17,6 @@ export const SCEUtils = {
     hours += hoursToAdd;
 
     // Handle rollover
-    const daysToAdd = Math.floor(hours / 24);
     hours = hours % 24;
 
     // Convert back to 12-hour format
@@ -77,6 +76,44 @@ export const SCEUtils = {
     return phone;
   },
 };
+
+// ==========================================
+// ASYNC HANDLER WRAPPER
+// ==========================================
+/**
+ * Wrap an async message handler to properly return true for async responses.
+ * Ensures all async operations are properly awaited and errors are caught.
+ *
+ * Usage:
+ * chrome.runtime.onMessage.addListener(
+ *   asyncHandler(async (message, sender, sendResponse) => {
+ *     const result = await someAsyncOperation();
+ *     return { success: true, data: result };
+ *   })
+ * );
+ */
+export function asyncHandler<T extends any[], R>(
+  handler: (...args: T) => Promise<R>
+): (...args: T) => boolean {
+  return (...args: T) => {
+    const sendResponse = args[args.length - 1] as (response: R) => void;
+
+    handler(...args)
+      .then(result => {
+        sendResponse(result);
+      })
+      .catch(error => {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('[AsyncHandler] Unhandled error:', errorMessage);
+        sendResponse({
+          success: false,
+          error: errorMessage,
+        } as R);
+      });
+
+    return true; // Keep channel open for async response
+  };
+}
 
 // Make available globally (for content scripts)
 declare global {

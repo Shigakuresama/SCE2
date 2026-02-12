@@ -5,15 +5,6 @@ import { SCEHelper } from './lib/sce-helper.js';
 import type { AdditionalCustomerInfo } from './lib/sections/additional-customer.js';
 import type { ProjectInfo } from './lib/sections/project.js';
 import type { TradeAllyInfo } from './lib/sections/trade-ally.js';
-import type { AssessmentInfo } from './lib/sections/assessment.js';
-import type { HouseholdInfo } from './lib/sections/household.js';
-import type { EnrollmentInfo } from './lib/sections/enrollment.js';
-import type { EquipmentInfo } from './lib/sections/equipment.js';
-import type { BasicEnrollmentInfo } from './lib/sections/basic-enrollment.js';
-import type { BonusInfo } from './lib/sections/bonus.js';
-import type { TermsInfo } from './lib/sections/terms.js';
-import type { CommentsInfo } from './lib/sections/comments.js';
-import type { StatusInfo } from './lib/sections/status.js';
 import { fetchZillowDataWithCache } from './lib/zillow-client.js';
 import {
   extractAssessmentInfo,
@@ -35,86 +26,25 @@ import {
 } from './lib/fill-orchestrator.js';
 import type { BannerController as FillBannerController } from './lib/fill-orchestrator.js';
 import { SCE1_DEFAULTS } from './lib/sce1-logic.js';
-import { readFieldValue, waitForElement as waitForElementUtil } from './lib/dom-utils.js';
+import {
+  findField,
+  readFieldValue,
+  waitForElement as waitForElementUtil,
+} from './lib/dom-utils.js';
 import { getConfig } from './lib/storage.js';
+import type {
+  ScrapePropertyMessage,
+  SubmitApplicationMessage,
+  FillRouteAddressMessage,
+  Message,
+  ScrapeResult,
+  SubmitResult,
+} from './types/messages.js';
 
 // ==========================================
 // TYPE DEFINITIONS
 // ==========================================
-
-interface ScrapeMessageData {
-  propertyId: number;
-  streetNumber: string;
-  streetName: string;
-  zipCode: string;
-}
-
-interface SubmitMessageData {
-  id: number;
-  streetNumber: string;
-  streetName: string;
-  zipCode: string;
-  customerName: string;
-  customerPhone: string;
-  customerAge?: number;
-  fieldNotes?: string;
-  documents: Array<{
-    url: string;
-    name: string;
-    type: string;
-  }>;
-}
-
-interface ScrapeResult {
-  success: boolean;
-  data?: {
-    customerName: string;
-    customerPhone: string;
-    customerEmail?: string;
-    // All form sections
-    additionalInfo?: Partial<AdditionalCustomerInfo>;
-    projectInfo?: Partial<ProjectInfo>;
-    tradeAllyInfo?: Partial<TradeAllyInfo>;
-    assessmentInfo?: Partial<AssessmentInfo>;
-    householdInfo?: Partial<HouseholdInfo>;
-    enrollmentInfo?: Partial<EnrollmentInfo>;
-    equipmentInfo?: Partial<EquipmentInfo>;
-    basicEnrollmentInfo?: Partial<BasicEnrollmentInfo>;
-    bonusInfo?: Partial<BonusInfo>;
-    termsInfo?: Partial<TermsInfo>;
-    commentsInfo?: Partial<CommentsInfo>;
-    statusInfo?: Partial<StatusInfo>;
-  };
-  error?: string;
-}
-
-interface SubmitResult {
-  success: boolean;
-  sceCaseId?: string;
-  skippedFinalSubmit?: boolean;
-  message?: string;
-  error?: string;
-}
-
-// ==========================================
-// SECTION MAPPING
-// ==========================================
-const SECTION_MAP: Record<string, string> = {
-  'Customer Information': 'customerInfo',
-  'Additional Customer Information': 'additionalInfo',
-  'Enrollment Information': 'enrollmentInfo',
-  'Household Members': 'household',
-  'Project Information': 'project',
-  'Trade Ally Information': 'tradeAlly',
-  'Assessment Questionnaire': 'assessment',
-  'Equipment Information': 'equipment',
-  'Basic Enrollment': 'basicEnrollment',
-  'Bonus Program': 'bonus',
-  'Terms and Conditions': 'terms',
-  'Upload Documents': 'uploads',
-  'Comments': 'comments',
-  'Status': 'status',
-};
+// Message types imported from ./types/messages.js
 
 // ==========================================
 // DETECTION
@@ -384,7 +314,7 @@ function extractTradeAllyInfo(): Partial<TradeAllyInfo> {
 // ==========================================
 // SCRAPE MODE
 // ==========================================
-async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResult> {
+async function performScrape(addressData: ScrapePropertyMessage['data']): Promise<ScrapeResult> {
   const helper = new SCEHelper();
 
   console.log('Starting scrape for:', addressData);
@@ -497,7 +427,7 @@ async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResu
 // ==========================================
 // SUBMIT MODE
 // ==========================================
-async function performSubmit(jobData: SubmitMessageData): Promise<SubmitResult> {
+async function performSubmit(jobData: SubmitApplicationMessage['data']): Promise<SubmitResult> {
   const helper = new SCEHelper();
 
   console.log('Starting submit for:', jobData);
@@ -781,22 +711,70 @@ async function extractCaseId(): Promise<string> {
   }
 }
 
+function checkCustomerSearchReadiness(): {
+  ready: boolean;
+  currentUrl: string;
+  reason?: string;
+} {
+  const currentUrl = window.location.href;
+  const lowerUrl = currentUrl.toLowerCase();
+  const onCustomerSearch = lowerUrl.includes('/onsite/customer-search');
+
+  const hasStreetNumberField = Boolean(findField('Street Number'));
+  const hasStreetNameField = Boolean(findField('Street Name'));
+  const hasZipField = Boolean(findField('Zip Code') || findField('Zip'));
+  const hasAddressField = hasStreetNumberField || hasStreetNameField;
+
+  if (hasAddressField && hasZipField) {
+    return {
+      ready: true,
+      currentUrl,
+    };
+  }
+
+  const hasLoginForm = Boolean(
+    document.querySelector('input#login, input[name*="login" i], input[type="password"]')
+  );
+
+  if (hasLoginForm || lowerUrl.includes('/tradeally/s/login') || lowerUrl.includes('/auth/login')) {
+    return {
+      ready: false,
+      currentUrl,
+      reason: 'Login required in this browser session.',
+    };
+  }
+
+  if (!onCustomerSearch) {
+    return {
+      ready: false,
+      currentUrl,
+      reason: 'Not on SCE customer-search page.',
+    };
+  }
+
+  return {
+    ready: false,
+    currentUrl,
+    reason: 'Customer-search fields are not available yet.',
+  };
+}
+
 // ==========================================
 // MESSAGE HANDLING
 // ==========================================
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   console.log('Content script received:', message);
 
   switch (message.action) {
     case 'SCRAPE_PROPERTY':
-      performScrape(message.data as ScrapeMessageData)
+      performScrape((message as ScrapePropertyMessage).data)
         .then(sendResponse)
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true; // Keep channel open for async
 
     // Route processing - fill address form on SCE
     case 'fillRouteAddress':
-      handleFillRouteAddress(message.address)
+      handleFillRouteAddress((message as FillRouteAddressMessage).address)
         .then(result => sendResponse({ success: true, data: result }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
@@ -805,10 +783,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'captureRouteData':
       const data = handleCaptureRouteData();
       sendResponse({ success: true, data });
-      return true;
+      return false; // Synchronous response, no need to keep channel open
 
     case 'SUBMIT_APPLICATION':
-      performSubmit(message.data as SubmitMessageData)
+      performSubmit((message as SubmitApplicationMessage).data)
         .then(sendResponse)
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true; // Keep channel open for async
@@ -816,25 +794,66 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'GET_CURRENT_SECTION':
       const section = getActiveSectionTitle();
       sendResponse({ section });
-      break;
+      return false; // Synchronous response
 
-    // NEW: Fill all sections
+    case 'CHECK_CUSTOMER_SEARCH_READY':
+      sendResponse({
+        success: true,
+        data: checkCustomerSearchReadiness(),
+      });
+      return false; // Synchronous response
+
+    // Fill all sections with async handler wrapper
     case 'FILL_ALL_SECTIONS':
-      handleFillAllSections(sendResponse);
+      (async () => {
+        try {
+          await handleFillAllSections();
+          sendResponse({ success: true });
+        } catch (error) {
+          const errorMessage = (error as Error).message;
+
+          // Check if stopped by user
+          if (errorMessage === 'Stopped by user') {
+            const banner = (window as any).sce2Banner as BannerController;
+            if (banner) {
+              banner.setStopped();
+            }
+            sendResponse({ success: false, stopped: true });
+          } else {
+            const banner = (window as any).sce2Banner as BannerController;
+            if (banner) {
+              banner.setError('fill-all-btn', errorMessage);
+            }
+            sendResponse({ success: false, error: errorMessage });
+          }
+        }
+      })();
       return true;
 
-    // NEW: Fill current section
+    // Fill current section with async handler wrapper
     case 'FILL_CURRENT_SECTION':
-      handleFillCurrentSection(sendResponse);
+      (async () => {
+        try {
+          await handleFillCurrentSection();
+          sendResponse({ success: true });
+        } catch (error) {
+          const errorMessage = (error as Error).message;
+          const banner = (window as any).sce2Banner as BannerController;
+          if (banner) {
+            banner.setError('fill-section-btn', errorMessage);
+          }
+          sendResponse({ success: false, error: errorMessage });
+        }
+      })();
       return true;
 
-    // NEW: Stop filling
+    // Stop filling
     case 'STOP_FILLING':
       requestStop();
       sendResponse({ success: true });
-      return true;
+      return false; // Synchronous response
 
-    // NEW: Show banner manually
+    // Show banner manually
     case 'SHOW_BANNER':
       const banner = (window as any).sce2Banner as BannerController;
       if (banner) {
@@ -843,10 +862,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else {
         sendResponse({ success: false, error: 'Banner not initialized' });
       }
-      return true;
+      return false; // Synchronous response
 
     default:
       sendResponse({ error: 'Unknown action' });
+      return false; // Unknown action
   }
 });
 
@@ -857,110 +877,86 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 /**
  * Handle fill all sections request
  */
-async function handleFillAllSections(sendResponse: (response: any) => void): Promise<void> {
+async function handleFillAllSections(): Promise<void> {
   const banner = (window as any).sce2Banner as BannerController;
 
   if (!banner) {
-    sendResponse({ success: false, error: 'Banner not found' });
-    return;
+    throw new Error('Banner not found');
   }
 
   resetStopFlag();
 
-  try {
-    // Get property data from storage or use defaults
-    const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
+  // Get property data from storage or use defaults
+  const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
 
-    // Use queued property data or defaults
-    let propertyData = result.propertyData || {};
+  // Use queued property data or defaults
+  let propertyData = result.propertyData || {};
 
-    // If we have queued property, use its data
-    if (result.queuedProperty) {
-      propertyData = {
-        ...propertyData,
-        ...result.queuedProperty,
-      };
-
-      // Clear queue after use
-      chrome.storage.local.remove(['queuedProperty']);
-    }
-
-    // Apply SCE1 defaults for any missing fields
+  // If we have queued property, use its data
+  if (result.queuedProperty) {
     propertyData = {
-      firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
-      lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
-      phone: propertyData.phone || SCE1_DEFAULTS.phone,
-      email: propertyData.email || SCE1_DEFAULTS.email,
       ...propertyData,
+      ...result.queuedProperty,
     };
 
-    await fillAllSections(propertyData, banner);
-
-    banner.setSuccess('All sections filled successfully!');
-    sendResponse({ success: true });
-
-  } catch (error) {
-    const errorMessage = (error as Error).message;
-
-    if (errorMessage === 'Stopped by user') {
-      banner.setStopped();
-      sendResponse({ success: false, stopped: true });
-    } else {
-      banner.setError('fill-all-btn', errorMessage);
-      sendResponse({ success: false, error: errorMessage });
-    }
+    // Clear queue after use
+    chrome.storage.local.remove(['queuedProperty']);
   }
+
+  // Apply SCE1 defaults for any missing fields
+  propertyData = {
+    firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
+    lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
+    phone: propertyData.phone || SCE1_DEFAULTS.phone,
+    email: propertyData.email || SCE1_DEFAULTS.email,
+    ...propertyData,
+  };
+
+  await fillAllSections(propertyData, banner);
+
+  banner.setSuccess('All sections filled successfully!');
 }
 
 /**
  * Handle fill current section request
  */
-async function handleFillCurrentSection(sendResponse: (response: any) => void): Promise<void> {
+async function handleFillCurrentSection(): Promise<void> {
   const banner = (window as any).sce2Banner as BannerController;
 
   if (!banner) {
-    sendResponse({ success: false, error: 'Banner not found' });
-    return;
+    throw new Error('Banner not found');
   }
 
   resetStopFlag();
 
-  try {
-    // Get property data from storage
-    const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
+  // Get property data from storage
+  const result = await chrome.storage.local.get(['propertyData', 'queuedProperty']);
 
-    let propertyData = result.propertyData || {};
+  let propertyData = result.propertyData || {};
 
-    // If we have queued property, use its data
-    if (result.queuedProperty) {
-      propertyData = {
-        ...propertyData,
-        ...result.queuedProperty,
-      };
-
-      // Clear queue after use
-      chrome.storage.local.remove(['queuedProperty']);
-    }
-
-    // Apply SCE1 defaults
+  // If we have queued property, use its data
+  if (result.queuedProperty) {
     propertyData = {
-      firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
-      lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
-      phone: propertyData.phone || SCE1_DEFAULTS.phone,
-      email: propertyData.email || SCE1_DEFAULTS.email,
       ...propertyData,
+      ...result.queuedProperty,
     };
 
-    await fillCurrentSection(propertyData, banner);
-
-    banner.showSectionSuccess();
-    sendResponse({ success: true });
-
-  } catch (error) {
-    const errorMessage = (error as Error).message;
-    banner.setError('fill-section-btn', errorMessage);
-    sendResponse({ success: false, error: errorMessage });
+    // Clear queue after use
+    chrome.storage.local.remove(['queuedProperty']);
   }
+
+  // Apply SCE1 defaults
+  propertyData = {
+    firstName: propertyData.firstName || SCE1_DEFAULTS.firstName,
+    lastName: propertyData.lastName || SCE1_DEFAULTS.lastName,
+    phone: propertyData.phone || SCE1_DEFAULTS.phone,
+    email: propertyData.email || SCE1_DEFAULTS.email,
+    ...propertyData,
+  };
+
+  await fillCurrentSection(propertyData, banner);
+
+  banner.showSectionSuccess();
 }
 
 // ==========================================

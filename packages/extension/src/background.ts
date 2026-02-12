@@ -13,71 +13,42 @@ import {
   RouteConfig,
   BatchProgress
 } from './lib/route-processor.js';
+import {
+  tryAcquireLock,
+  releaseLock,
+  isProcessing as checkIsProcessing,
+  getCurrentBatchId,
+} from './lib/route-state.js';
+import type {
+  ScrapeJob,
+  SubmitJob,
+  QueueState,
+  ScrapeResult,
+  SubmitResult,
+  CustomerSearchReadyResponse,
+  RouteProcessResult,
+  Message,
+} from './types/messages.js';
 
 // ==========================================
-// TYPE DEFINITIONS
+// GLOBAL ERROR HANDLERS
 // ==========================================
+// Global error handlers for debugging
+self.addEventListener('unhandledrejection', (event) => {
+  console.error('[Background] Unhandled promise rejection:', event.reason);
+  // Could send to error tracking service here
+});
 
-interface Config {
-  apiBaseUrl: string;
-  autoProcess: boolean;
-  autoStart: boolean;
-  pollInterval: number;
-  timeout: number;
-  maxConcurrent: number;
-  debugMode: boolean;
-  submitVisibleSectionOnly: boolean;
-  enableDocumentUpload: boolean;
-  enableFinalSubmit: boolean;
-}
+self.addEventListener('error', (event) => {
+  console.error('[Background] Uncaught error:', event.error);
+});
 
-interface ScrapeJob {
-  id: number;
-  streetNumber: string;
-  streetName: string;
-  zipCode: string;
-  addressFull: string;
-}
+// ==========================================
+// TYPE DEFINITIONS (Imported from types/messages.ts)
+// ==========================================
+// All types imported from ./types/messages.js at top of file
 
-interface SubmitJob {
-  id: number;
-  streetNumber: string;
-  streetName: string;
-  zipCode: string;
-  addressFull: string;
-  customerName?: string;
-  customerPhone?: string;
-  customerAge?: number;
-  fieldNotes?: string;
-  documents: Array<{
-    id: number;
-    fileName: string;
-    filePath: string;
-    url: string;
-    docType: string;
-  }>;
-}
-
-interface QueueState {
-  items: any[];
-  currentJob: any;
-  isProcessing: boolean;
-  processedCount: number;
-}
-
-interface ScrapeResponse {
-  success: boolean;
-  data?: { customerName: string; customerPhone: string };
-  error?: string;
-}
-
-interface SubmitResponse {
-  success: boolean;
-  sceCaseId?: string;
-  skippedFinalSubmit?: boolean;
-  message?: string;
-  error?: string;
-}
+const SCE_CUSTOMER_SEARCH_URL = 'https://sce.dsmcentral.com/onsite/customer-search';
 
 // ==========================================
 // QUEUE MANAGEMENT
@@ -97,37 +68,11 @@ const SUBMIT_QUEUE: QueueState = {
 };
 
 // ==========================================
-// ROUTE PROCESSING STATE
-// ==========================================
-
-interface RouteBatchState {
-  batchId: string | null;
-  isProcessing: boolean;
-  processedCount: number;
-  totalCount: number;
-  successfulCount: number;
-  failedCount: number;
-  results: any[];
-  progressCallback: ((update: BatchProgress) => void) | null;
-}
-
-const ROUTE_STATE: RouteBatchState = {
-  batchId: null,
-  isProcessing: false,
-  processedCount: 0,
-  totalCount: 0,
-  successfulCount: 0,
-  failedCount: 0,
-  results: [],
-  progressCallback: null,
-};
-
-// ==========================================
 // POLLING MANAGER
 // ==========================================
 const pollingManager = new PollingManager(poll);
 
-function log(...args: any[]): void {
+function log(...args: unknown[]): void {
   getConfig().then(config => {
     if (config.debugMode) {
       console.log('[SCE2]', ...args);
@@ -231,22 +176,12 @@ async function processScrapeJob(job: ScrapeJob): Promise<void> {
   SCRAPE_QUEUE.currentJob = job;
 
   try {
-    // Open SCE form in new tab
-    const tab = await chrome.tabs.create({
-      url: 'https://sce.dsmcentral.com/onsite',
-    });
+    const tab = await openSceCustomerSearchTab();
 
     log(`Opened tab ${tab.id} for scrape job ${job.id}`);
 
-    // Wait for tab to load
-    await waitForTabLoad(tab.id!);
-    log(`Tab ${tab.id} loaded`);
-
-    // Small delay for Angular to initialize
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Send scrape command to content script
-    const response = await chrome.tabs.sendMessage(
+    // Send scrape command to content script (with retries while script initializes)
+    const result = await sendTabMessageWithRetry<ScrapeResult>(
       tab.id!,
       {
         action: 'SCRAPE_PROPERTY',
@@ -256,14 +191,9 @@ async function processScrapeJob(job: ScrapeJob): Promise<void> {
           streetName: job.streetName,
           zipCode: job.zipCode,
         },
-      }
-    ) as ScrapeResponse;
-
-    if (chrome.runtime.lastError) {
-      throw new Error(`Content script error: ${chrome.runtime.lastError.message}`);
-    }
-
-    const result = response;
+      },
+      4
+    );
 
     if (result.success && result.data) {
       // Send scraped data to cloud
@@ -322,19 +252,9 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
   SUBMIT_QUEUE.currentJob = job;
 
   try {
-    // Open SCE form in new tab
-    const tab = await chrome.tabs.create({
-      url: 'https://sce.dsmcentral.com/onsite',
-    });
+    const tab = await openSceCustomerSearchTab();
 
     log(`Opened tab ${tab.id} for submit job ${job.id}`);
-
-    // Wait for tab to load
-    await waitForTabLoad(tab.id!);
-    log(`Tab ${tab.id} loaded`);
-
-    // Small delay for Angular to initialize
-    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Prepare documents with URLs
     const config = await getConfig();
@@ -345,7 +265,7 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
     }));
 
     // Send submit command to content script
-    const response = await chrome.tabs.sendMessage(
+    const result = await sendTabMessageWithRetry<SubmitResult>(
       tab.id!,
       {
         action: 'SUBMIT_APPLICATION',
@@ -353,14 +273,9 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
           ...job,
           documents,
         },
-      }
-    ) as SubmitResponse;
-
-    if (chrome.runtime.lastError) {
-      throw new Error(`Content script error: ${chrome.runtime.lastError.message}`);
-    }
-
-    const result = response;
+      },
+      4
+    );
 
     if (result.success && result.sceCaseId) {
       // Mark as complete
@@ -509,6 +424,133 @@ async function waitForTabLoad(tabId: number): Promise<void> {
   });
 }
 
+function isRetryableContentScriptError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('receiving end does not exist') ||
+    normalized.includes('could not establish connection')
+  );
+}
+
+async function sendTabMessageWithRetry<T>(
+  tabId: number,
+  message: Record<string, unknown>,
+  attempts = 4
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await new Promise<T>((resolve, reject) => {
+        chrome.tabs.sendMessage(tabId, message, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          resolve(response as T);
+        });
+      });
+    } catch (error) {
+      const asError =
+        error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown error');
+      lastError = asError;
+
+      if (attempt >= attempts || !isRetryableContentScriptError(asError.message)) {
+        throw asError;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+
+  throw lastError ?? new Error('Failed to send message to tab');
+}
+
+async function openSceCustomerSearchTab(): Promise<chrome.tabs.Tab> {
+  const tab = await chrome.tabs.create({
+    url: SCE_CUSTOMER_SEARCH_URL,
+  });
+
+  if (!tab.id) {
+    throw new Error('Failed to open SCE customer-search tab');
+  }
+
+  await waitForTabLoad(tab.id);
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  let loadedTab = await chrome.tabs.get(tab.id);
+  let currentUrl = (loadedTab.url ?? '').toLowerCase();
+
+  // Some SCE sessions land on /onsite first; retry customer-search once.
+  if (!currentUrl.includes('/onsite/customer-search')) {
+    await chrome.tabs.update(tab.id, { url: SCE_CUSTOMER_SEARCH_URL });
+    await waitForTabLoad(tab.id);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    loadedTab = await chrome.tabs.get(tab.id);
+    currentUrl = (loadedTab.url ?? '').toLowerCase();
+  }
+
+  if (!currentUrl.includes('/onsite/customer-search')) {
+    throw new Error(
+      'SCE customer-search is not accessible in this browser session. Open customer-search manually and log in, then retry.'
+    );
+  }
+
+  return loadedTab;
+}
+
+async function checkSceSessionReadiness(): Promise<{
+  ready: boolean;
+  currentUrl: string;
+  reason?: string;
+}> {
+  let tabId: number | null = null;
+  let currentUrl = SCE_CUSTOMER_SEARCH_URL;
+
+  try {
+    const tab = await chrome.tabs.create({
+      url: SCE_CUSTOMER_SEARCH_URL,
+      active: false,
+    });
+
+    if (!tab.id) {
+      throw new Error('Failed to open SCE customer-search tab for session check.');
+    }
+
+    tabId = tab.id;
+    await waitForTabLoad(tabId);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    const loadedTab = await chrome.tabs.get(tabId);
+    currentUrl = loadedTab.url ?? currentUrl;
+
+    const response = await sendTabMessageWithRetry<CustomerSearchReadyResponse>(
+      tabId,
+      { action: 'CHECK_CUSTOMER_SEARCH_READY' },
+      4
+    );
+
+    if (!response.success || !response.data) {
+      return {
+        ready: false,
+        currentUrl,
+        reason: response.error || 'Session check did not return a valid readiness payload.',
+      };
+    }
+
+    return response.data;
+  } catch (error) {
+    return {
+      ready: false,
+      currentUrl,
+      reason: error instanceof Error ? error.message : 'Unknown session check error.',
+    };
+  } finally {
+    if (tabId !== null) {
+      await closeTab(tabId);
+    }
+  }
+}
+
 async function closeTab(tabId: number): Promise<void> {
   try {
     await chrome.tabs.remove(tabId);
@@ -521,48 +563,52 @@ async function closeTab(tabId: number): Promise<void> {
 // POLLING LOOP
 // ==========================================
 async function poll(): Promise<void> {
-  const config = await getConfig();
+  try {
+    const config = await getConfig();
 
-  if (!config.autoProcess) {
-    log('Auto-processing disabled, skipping poll');
-    return;
-  }
-
-  // Don't poll if already processing max concurrent jobs
-  const activeJobs = (SCRAPE_QUEUE.isProcessing ? 1 : 0) + (SUBMIT_QUEUE.isProcessing ? 1 : 0);
-  if (activeJobs >= config.maxConcurrent) {
-    log('Max concurrent jobs reached, skipping poll');
-    return;
-  }
-
-  // Process scrape queue
-  if (!SCRAPE_QUEUE.isProcessing) {
-    const job = await fetchScrapeJob();
-
-    if (job) {
-      SCRAPE_QUEUE.isProcessing = true;
-      await processScrapeJob(job);
-      SCRAPE_QUEUE.isProcessing = false;
+    if (!config.autoProcess) {
+      log('Auto-processing disabled, skipping poll');
+      return;
     }
-  }
 
-  // Process submit queue
-  if (!config.enableFinalSubmit) {
-    log('Final submit automation disabled, skipping submit queue polling');
-  } else if (!SUBMIT_QUEUE.isProcessing) {
-    const job = await fetchSubmitJob();
-
-    if (job) {
-      SUBMIT_QUEUE.isProcessing = true;
-      await processSubmitJob(job);
-      SUBMIT_QUEUE.isProcessing = false;
+    // Don't poll if already processing max concurrent jobs
+    const activeJobs = (SCRAPE_QUEUE.isProcessing ? 1 : 0) + (SUBMIT_QUEUE.isProcessing ? 1 : 0);
+    if (activeJobs >= config.maxConcurrent) {
+      log('Max concurrent jobs reached, skipping poll');
+      return;
     }
-  }
 
-  log('Poll complete. Processed:', {
-    scrape: SCRAPE_QUEUE.processedCount,
-    submit: SUBMIT_QUEUE.processedCount,
-  });
+    // Process scrape queue
+    if (!SCRAPE_QUEUE.isProcessing) {
+      const job = await fetchScrapeJob();
+
+      if (job) {
+        SCRAPE_QUEUE.isProcessing = true;
+        await processScrapeJob(job);
+        SCRAPE_QUEUE.isProcessing = false;
+      }
+    }
+
+    // Process submit queue
+    if (!config.enableFinalSubmit) {
+      log('Final submit automation disabled, skipping submit queue polling');
+    } else if (!SUBMIT_QUEUE.isProcessing) {
+      const job = await fetchSubmitJob();
+
+      if (job) {
+        SUBMIT_QUEUE.isProcessing = true;
+        await processSubmitJob(job);
+        SUBMIT_QUEUE.isProcessing = false;
+      }
+    }
+
+    log('Poll complete. Processed:', {
+      scrape: SCRAPE_QUEUE.processedCount,
+      submit: SUBMIT_QUEUE.processedCount,
+    });
+  } catch (error) {
+    console.error('[Background] Error during polling:', error);
+  }
 }
 
 // Start polling with adaptive interval
@@ -595,51 +641,22 @@ configManager.subscribe((config) => {
 async function processRouteAddresses(
   addresses: RouteAddress[],
   config?: Partial<RouteConfig>
-): Promise<{ batchId: string; results: any[] }> {
-  if (ROUTE_STATE.isProcessing) {
-    throw new Error('Route processing already in progress');
-  }
-
-  ROUTE_STATE.isProcessing = true;
-  ROUTE_STATE.processedCount = 0;
-  ROUTE_STATE.successfulCount = 0;
-  ROUTE_STATE.failedCount = 0;
-  ROUTE_STATE.results = [];
-
+): Promise<{ batchId: string; results: RouteProcessResult[] }> {
   // Progress callback for real-time updates
   const progressCallback = (update: BatchProgress) => {
-    ROUTE_STATE.batchId = update.batchId;
-    ROUTE_STATE.processedCount = update.current;
-    ROUTE_STATE.totalCount = update.total;
-
-    if (update.result) {
-      ROUTE_STATE.results.push(update.result);
-      if (update.result.success) {
-        ROUTE_STATE.successfulCount++;
-      } else {
-        ROUTE_STATE.failedCount++;
-      }
-    }
-
     // Broadcast progress to popup/options
     broadcastRouteProgress(update);
-
     log('[Route] Progress:', update.message);
   };
 
   try {
     const result = await processRouteBatch(addresses, config, progressCallback);
 
-    ROUTE_STATE.batchId = result.batchId;
-    ROUTE_STATE.results = result.results;
-    ROUTE_STATE.successfulCount = result.results.filter(r => r.success).length;
-    ROUTE_STATE.failedCount = result.results.filter(r => !r.success).length;
-
     log('[Route] Batch complete:', {
       batchId: result.batchId,
       total: result.results.length,
-      successful: ROUTE_STATE.successfulCount,
-      failed: ROUTE_STATE.failedCount
+      successful: result.results.filter(r => r.success).length,
+      failed: result.results.filter(r => !r.success).length
     });
 
     // Save extracted data to cloud server
@@ -649,8 +666,6 @@ async function processRouteAddresses(
   } catch (error) {
     log('[Route] Batch error:', error);
     throw error;
-  } finally {
-    ROUTE_STATE.isProcessing = false;
   }
 }
 
@@ -663,7 +678,7 @@ async function processRouteAddresses(
 async function processSingleRouteAddress(
   address: RouteAddress,
   config?: Partial<RouteConfig>
-): Promise<any> {
+): Promise<RouteProcessResult> {
   log('[Route] Processing single address:', address.full);
 
   const result = await processRouteAddress(address, config);
@@ -680,26 +695,29 @@ async function processSingleRouteAddress(
 /**
  * Get current route processing status
  */
-function getRouteStatus(): RouteBatchState {
-  return { ...ROUTE_STATE };
+async function getRouteStatus(): Promise<{ isProcessing: boolean; batchId: string | null }> {
+  const processing = await checkIsProcessing();
+  const batchId = await getCurrentBatchId();
+  return { isProcessing: processing, batchId };
 }
 
 /**
  * Cancel current route processing
  */
-function cancelRouteProcessing(): void {
-  if (ROUTE_STATE.isProcessing) {
-    log('[Route] Cancelling batch:', ROUTE_STATE.batchId);
-    ROUTE_STATE.isProcessing = false;
+async function cancelRouteProcessing(): Promise<void> {
+  const processing = await checkIsProcessing();
+  const batchId = await getCurrentBatchId();
+
+  if (processing) {
+    log('[Route] Cancelling batch:', batchId);
+    await releaseLock();
     // Note: Active tabs will continue processing, but no new addresses will be started
     broadcastRouteProgress({
       type: 'error',
-      batchId: ROUTE_STATE.batchId || '',
-      current: ROUTE_STATE.processedCount,
-      total: ROUTE_STATE.totalCount,
-      percent: ROUTE_STATE.totalCount > 0
-        ? Math.round((ROUTE_STATE.processedCount / ROUTE_STATE.totalCount) * 100)
-        : 0,
+      batchId: batchId || '',
+      current: 0,
+      total: 0,
+      percent: 0,
       message: 'Processing cancelled'
     });
   }
@@ -722,7 +740,7 @@ function broadcastRouteProgress(update: BatchProgress): void {
  * Save extracted customer data to cloud server
  * @param results - Array of route processing results
  */
-async function saveExtractedDataToCloud(results: any[]): Promise<void> {
+async function saveExtractedDataToCloud(results: RouteProcessResult[]): Promise<void> {
   const config = await getConfig();
 
   // Prepare batch update payload
@@ -773,7 +791,7 @@ getConfig().then(config => {
 // ==========================================
 // MESSAGE HANDLING
 // ==========================================
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   log('Background received message:', message);
 
   switch (message.action) {
@@ -790,7 +808,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'START_PROCESSING':
-      getConfig().then(config => {
+      getConfig().then(_config => {
         chrome.storage.sync.set({ autoProcess: true });
         startPolling();
         sendResponse({ success: true });
@@ -807,35 +825,81 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       poll().then(() => sendResponse({ success: true }));
       return true;
 
+    case 'CHECK_SCE_SESSION_READY':
+      checkSceSessionReadiness()
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((error) =>
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown session check error',
+          })
+        );
+      return true;
+
     // ==========================================
     // ROUTE PROCESSING ACTIONS
     // ==========================================
-    case 'PROCESS_ROUTE_BATCH':
-      processRouteAddresses(message.addresses, message.config)
-        .then(result => sendResponse({ success: true, data: result }))
-        .catch(error => sendResponse({
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }));
-      return true;
+    case 'PROCESS_ROUTE_BATCH': {
+      const { addresses, config } = message as Extract<Message, { action: 'PROCESS_ROUTE_BATCH' }>;
 
-    case 'PROCESS_SINGLE_ROUTE':
-      processSingleRouteAddress(message.address, message.config)
+      // Generate batch ID first
+      const batchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+      // Atomic lock acquisition
+      tryAcquireLock(batchId).then(async (acquired) => {
+        if (!acquired) {
+          const currentBatch = await getCurrentBatchId();
+          sendResponse({
+            success: false,
+            error: 'Route processing already in progress',
+            currentBatchId: currentBatch,
+          });
+          return;
+        }
+
+        try {
+          const result = await processRouteAddresses(addresses, config);
+          sendResponse({ success: true, data: result });
+        } catch (error) {
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        } finally {
+          await releaseLock();
+        }
+      });
+      return true;
+    }
+
+    case 'PROCESS_SINGLE_ROUTE': {
+      const msg = message as Extract<Message, { action: 'PROCESS_SINGLE_ROUTE' }>;
+      processSingleRouteAddress(msg.address, msg.config)
         .then(result => sendResponse({ success: true, data: result }))
         .catch(error => sendResponse({
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error'
         }));
       return true;
+    }
 
     case 'GET_ROUTE_STATUS':
-      sendResponse({ success: true, data: getRouteStatus() });
-      break;
+      getRouteStatus()
+        .then(data => sendResponse({ success: true, data }))
+        .catch(error => sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }));
+      return true;
 
     case 'CANCEL_ROUTE_PROCESSING':
-      cancelRouteProcessing();
-      sendResponse({ success: true });
-      break;
+      cancelRouteProcessing()
+        .then(() => sendResponse({ success: true }))
+        .catch(error => sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }));
+      return true;
 
     default:
       sendResponse({ error: 'Unknown action' });
