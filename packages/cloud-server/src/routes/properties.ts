@@ -95,6 +95,7 @@ propertyRoutes.post(
       latitude,
       longitude,
       routeId,
+      customerEmail,
     } = req.body;
 
     const property = await prisma.property.create({
@@ -108,6 +109,7 @@ propertyRoutes.post(
         latitude,
         longitude,
         routeId,
+        customerEmail,
       },
     });
 

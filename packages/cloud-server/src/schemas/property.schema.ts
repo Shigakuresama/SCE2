@@ -13,6 +13,10 @@ export const CreatePropertySchema = z.object({
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
   routeId: z.number().int().positive().optional().nullable(),
+  customerEmail: z.union([
+    z.string().email('Invalid email format'),
+    z.literal('')
+  ]).optional(),
 });
 
 // Schema for batch address import

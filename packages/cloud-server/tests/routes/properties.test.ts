@@ -83,6 +83,25 @@ describe('Property Routes Validation', () => {
       expect(response.status).toBe(201);
       expect(response.body.success).toBe(true);
     });
+
+    it('should reject invalid email format', async () => {
+      const response = await request(app)
+        .post('/api/properties')
+        .send({
+          addressFull: `TEST_ADDRESS_${testRunId}_invalid_email`,
+          streetNumber: '123',
+          streetName: 'Test St',
+          zipCode: '92801',
+          customerEmail: 'not-an-email',
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: 'customerEmail' })
+        ])
+      );
+    });
   });
 
   describe('PATCH /api/properties/:id', () => {
