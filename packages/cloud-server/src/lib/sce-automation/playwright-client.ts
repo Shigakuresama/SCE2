@@ -225,7 +225,8 @@ function isRetriableNavigationError(error: unknown): boolean {
 function resolveDsmSsoBridgeUrl(targetUrl: string): string {
   const target = new URL(targetUrl);
   const bridgeUrl = new URL('/traksmart4/public/saml2/saml/login', target.origin);
-  bridgeUrl.searchParams.set('sso-redirect-path', '/onsite');
+  const redirectPath = `${target.pathname}${target.search}` || '/onsite/customer-search';
+  bridgeUrl.searchParams.set('sso-redirect-path', redirectPath);
   return bridgeUrl.toString();
 }
 
@@ -398,6 +399,18 @@ async function hasCustomerSearchFields(page: Page): Promise<boolean> {
   return hasAddress && hasZip && hasSearchButton;
 }
 
+async function waitForCustomerSearchFields(
+  page: Page,
+  timeoutMs: number
+): Promise<boolean> {
+  try {
+    await waitForAnySelector(page, [...ADDRESS_FULL_SELECTORS, ...ZIP_SELECTORS], timeoutMs);
+  } catch {
+    return false;
+  }
+  return hasCustomerSearchFields(page);
+}
+
 async function hasLoginPrompt(page: Page): Promise<boolean> {
   const url = page.url().toLowerCase();
   if (url.includes('/auth/login')) {
@@ -465,12 +478,16 @@ async function tryRecoverCustomerSearchPage(page: Page, targetUrl: string): Prom
     `${target.origin}/onsite/customer-search`,
     `${target.origin}/onsite/#/customer-search`,
   ];
+  const readinessTimeoutMs = Math.min(
+    Math.max(config.sceAutomationTimeoutMs, 10_000),
+    22_000
+  );
 
   for (let round = 1; round <= 3; round += 1) {
     for (const url of recoveryUrls) {
       try {
         await page.goto(url, { waitUntil: 'domcontentloaded' });
-        await page.waitForTimeout(1200 + 300 * round);
+        await page.waitForTimeout(1200 + 350 * round);
       } catch {
         continue;
       }
@@ -481,12 +498,16 @@ async function tryRecoverCustomerSearchPage(page: Page, targetUrl: string): Prom
       if (await hasCustomerSearchFields(page)) {
         return;
       }
+      if (await waitForCustomerSearchFields(page, readinessTimeoutMs)) {
+        return;
+      }
     }
   }
 
   const clickedCustomerSearch = await clickFirstMatchingSelector(page, CUSTOMER_SEARCH_NAV_SELECTORS);
   if (clickedCustomerSearch) {
-    await page.waitForTimeout(1800);
+    await page.waitForTimeout(2200);
+    await waitForCustomerSearchFields(page, readinessTimeoutMs).catch(() => undefined);
   }
 }
 
@@ -511,13 +532,17 @@ async function assertOnCustomerSearchPage(
   const expectedPath = normalizePath(new URL(targetUrl).pathname);
   const actualPath = normalizePath(new URL(page.url()).pathname);
   if (actualPath === expectedPath) {
+    const readinessTimeoutMs = Math.min(
+      Math.max(config.sceAutomationTimeoutMs, 10_000),
+      20_000
+    );
     const waitResult = await Promise.race([
-      waitForAnySelector(page, [...ADDRESS_FULL_SELECTORS, ...ZIP_SELECTORS], 9000)
+      waitForAnySelector(page, [...ADDRESS_FULL_SELECTORS, ...ZIP_SELECTORS], readinessTimeoutMs)
         .then(() => 'ready')
         .catch(() => 'timeout'),
       (async () => {
         const start = Date.now();
-        while (Date.now() - start < 9000) {
+        while (Date.now() - start < readinessTimeoutMs) {
           if (await hasLoginPrompt(page)) {
             return 'login';
           }

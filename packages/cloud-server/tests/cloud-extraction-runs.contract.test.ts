@@ -359,4 +359,46 @@ describe('Cloud Extraction Runs Contract', () => {
     expect(secondStart.body.success).toBe(false);
     expect(secondStart.body.error.message).toContain('cannot be started');
   });
+
+  it('blocks run start when session preflight validation fails', async () => {
+    const { setCloudExtractionSessionValidatorForTests } = await import(
+      '../src/routes/cloud-extraction.js'
+    );
+    setCloudExtractionSessionValidatorForTests(async () => {
+      throw new Error(
+        'SCE login required for https://sce.dsmcentral.com/onsite/customer-search. Refresh session JSON from an authenticated dsmcentral login.'
+      );
+    });
+
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const session = await request(app).post('/api/cloud-extraction/sessions').send({
+      label: 'Invalid Preflight Session',
+      sessionStateJson: '{"cookies":[]}',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+    expect(session.status).toBe(201);
+
+    const run = await request(app).post('/api/cloud-extraction/runs').send({
+      propertyIds: [301],
+      sessionId: session.body.data.id,
+    });
+    expect(run.status).toBe(201);
+
+    const startRes = await request(app).post(
+      `/api/cloud-extraction/runs/${run.body.data.id}/start`
+    );
+    expect(startRes.status).toBe(400);
+    expect(startRes.body.success).toBe(false);
+    expect(startRes.body.error.message).toContain('cannot be started');
+    expect(startRes.body.error.message).toContain('session');
+    expect(startRes.body.error.message).toContain('SCE login required');
+
+    const runDetail = await request(app).get(
+      `/api/cloud-extraction/runs/${run.body.data.id}`
+    );
+    expect(runDetail.status).toBe(200);
+    expect(runDetail.body.data.status).toBe('QUEUED');
+  });
 });

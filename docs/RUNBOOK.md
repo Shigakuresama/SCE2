@@ -65,6 +65,10 @@ Use this flow for server-side extraction without the extension:
    - In webapp, use **Create session via login bridge**.
    - Enter SCE username/password + expiry; cloud performs login.
    - Cloud now validates that the resulting session can actually open `/onsite/customer-search` before saving.
+   - The login automation path is explicitly:
+     - Trade Ally login: `https://sce-trade-ally-community.my.site.com/tradeally/s/login/`
+     - DSM SSO bridge: `/traksmart4/public/saml2/saml/login?sso-redirect-path=/onsite/customer-search`
+     - Final validation target: `https://sce.dsmcentral.com/onsite/customer-search`
    - If validation fails, no session is saved and the API returns a direct error reason.
    - Credentials are only used for this request and are not persisted in `ExtractionSession`.
 4. Fallback (manual JSON):
@@ -78,6 +82,9 @@ Use this flow for server-side extraction without the extension:
    - Expected success: `Session can access SCE customer-search.`
    - If validation fails, regenerate the session before running extraction.
 6. Verify property IDs, then click **Run Cloud Extraction**.
+   - Run start now performs preflight validation automatically.
+   - If invalid, run start is blocked with HTTP `400` and message:
+     `Run <id> cannot be started because session <id> is invalid: <reason>`
 7. Monitor run status and counters:
    - `QUEUED` / `RUNNING` / `COMPLETED` / `COMPLETED_WITH_ERRORS` / `FAILED`
 8. Confirm successful properties moved to `READY_FOR_FIELD`.
@@ -91,6 +98,26 @@ If cloud extraction becomes unstable:
 2. Continue extraction with the desktop extension flow.
 3. Keep submission automation on extension path (unchanged).
 4. Re-enable cloud extraction only after validating on a small batch (2-3 properties).
+
+### Cloud Extraction Quick Troubleshooting Checklist
+
+Use this when session validation or run start fails:
+
+1. Confirm SCE account can manually open:
+   `https://sce.dsmcentral.com/onsite/customer-search`
+2. If automation reports landing on `/onsite`:
+   - re-run login bridge session creation
+   - re-run **Validate Session**
+   - confirm `currentUrl` includes `/onsite/customer-search`
+3. If run start returns `400` preflight invalid:
+   - create a new session (login bridge)
+   - do not retry the same invalid session
+4. If customer-search intermittently redirects to auth/login:
+   - wait 10-20 seconds after login before creating session
+   - regenerate session and validate again
+5. If failures persist with valid manual login:
+   - disable cloud extraction (`SCE_AUTOMATION_ENABLED=false`)
+   - use extension extraction fallback
 
 ---
 
