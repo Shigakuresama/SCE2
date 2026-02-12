@@ -21,6 +21,19 @@ import {
 } from './lib/route-state.js';
 
 // ==========================================
+// GLOBAL ERROR HANDLERS
+// ==========================================
+// Global error handlers for debugging
+self.addEventListener('unhandledrejection', (event) => {
+  console.error('[Background] Unhandled promise rejection:', event.reason);
+  // Could send to error tracking service here
+});
+
+self.addEventListener('error', (event) => {
+  console.error('[Background] Uncaught error:', event.error);
+});
+
+// ==========================================
 // TYPE DEFINITIONS
 // ==========================================
 
@@ -614,48 +627,52 @@ async function closeTab(tabId: number): Promise<void> {
 // POLLING LOOP
 // ==========================================
 async function poll(): Promise<void> {
-  const config = await getConfig();
+  try {
+    const config = await getConfig();
 
-  if (!config.autoProcess) {
-    log('Auto-processing disabled, skipping poll');
-    return;
-  }
-
-  // Don't poll if already processing max concurrent jobs
-  const activeJobs = (SCRAPE_QUEUE.isProcessing ? 1 : 0) + (SUBMIT_QUEUE.isProcessing ? 1 : 0);
-  if (activeJobs >= config.maxConcurrent) {
-    log('Max concurrent jobs reached, skipping poll');
-    return;
-  }
-
-  // Process scrape queue
-  if (!SCRAPE_QUEUE.isProcessing) {
-    const job = await fetchScrapeJob();
-
-    if (job) {
-      SCRAPE_QUEUE.isProcessing = true;
-      await processScrapeJob(job);
-      SCRAPE_QUEUE.isProcessing = false;
+    if (!config.autoProcess) {
+      log('Auto-processing disabled, skipping poll');
+      return;
     }
-  }
 
-  // Process submit queue
-  if (!config.enableFinalSubmit) {
-    log('Final submit automation disabled, skipping submit queue polling');
-  } else if (!SUBMIT_QUEUE.isProcessing) {
-    const job = await fetchSubmitJob();
-
-    if (job) {
-      SUBMIT_QUEUE.isProcessing = true;
-      await processSubmitJob(job);
-      SUBMIT_QUEUE.isProcessing = false;
+    // Don't poll if already processing max concurrent jobs
+    const activeJobs = (SCRAPE_QUEUE.isProcessing ? 1 : 0) + (SUBMIT_QUEUE.isProcessing ? 1 : 0);
+    if (activeJobs >= config.maxConcurrent) {
+      log('Max concurrent jobs reached, skipping poll');
+      return;
     }
-  }
 
-  log('Poll complete. Processed:', {
-    scrape: SCRAPE_QUEUE.processedCount,
-    submit: SUBMIT_QUEUE.processedCount,
-  });
+    // Process scrape queue
+    if (!SCRAPE_QUEUE.isProcessing) {
+      const job = await fetchScrapeJob();
+
+      if (job) {
+        SCRAPE_QUEUE.isProcessing = true;
+        await processScrapeJob(job);
+        SCRAPE_QUEUE.isProcessing = false;
+      }
+    }
+
+    // Process submit queue
+    if (!config.enableFinalSubmit) {
+      log('Final submit automation disabled, skipping submit queue polling');
+    } else if (!SUBMIT_QUEUE.isProcessing) {
+      const job = await fetchSubmitJob();
+
+      if (job) {
+        SUBMIT_QUEUE.isProcessing = true;
+        await processSubmitJob(job);
+        SUBMIT_QUEUE.isProcessing = false;
+      }
+    }
+
+    log('Poll complete. Processed:', {
+      scrape: SCRAPE_QUEUE.processedCount,
+      submit: SUBMIT_QUEUE.processedCount,
+    });
+  } catch (error) {
+    console.error('[Background] Error during polling:', error);
+  }
 }
 
 // Start polling with adaptive interval
