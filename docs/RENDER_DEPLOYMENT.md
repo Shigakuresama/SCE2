@@ -186,7 +186,10 @@ Check the **"Logs"** tab in your service. Common issues:
 1. Confirm `SCE_AUTOMATION_ENABLED=true` only when you are actively rolling out cloud extraction.
 2. Verify `SCE_SESSION_ENCRYPTION_KEY` is set and non-empty.
 3. Confirm build logs include `npx playwright install chromium`.
-4. If Playwright launch errors continue, set `SCE_AUTOMATION_ENABLED=false` and use extension fallback until runtime is fixed.
+4. Validate a session from webapp Queue panel before starting runs.
+5. Note: run start now performs session preflight validation and returns `400` for invalid sessions.
+6. If sessions keep landing on `/onsite`, recreate login bridge session and validate until URL includes `/onsite/customer-search`.
+7. If Playwright launch errors continue, set `SCE_AUTOMATION_ENABLED=false` and use extension fallback until runtime is fixed.
 
 ### API Returns 403/CORS Errors
 

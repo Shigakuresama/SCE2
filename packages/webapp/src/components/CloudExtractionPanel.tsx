@@ -268,6 +268,13 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
 
     setStartingRun(true);
     try {
+      const validation = await api.validateExtractionSession(selectedSessionId);
+      setSessionValidation(validation);
+      if (!validation.valid) {
+        setError(`Session validation failed: ${validation.message}`);
+        return;
+      }
+
       const run = await api.createCloudExtractionRun({
         sessionId: selectedSessionId,
         propertyIds,
@@ -457,7 +464,7 @@ export const CloudExtractionPanel: React.FC<CloudExtractionPanelProps> = ({
         <button
           type="button"
           onClick={handleRun}
-          disabled={startingRun || !selectedSessionId}
+          disabled={startingRun || validatingSession || !selectedSessionId}
           className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
         >
           {startingRun ? 'Starting...' : 'Run Cloud Extraction'}

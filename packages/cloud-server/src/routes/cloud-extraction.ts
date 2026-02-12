@@ -38,6 +38,9 @@ let sessionValidator = async (
 };
 let cloudExtractionEnabledOverride: boolean | null = null;
 
+const SESSION_INACTIVE_MESSAGE = 'Session is inactive. Create a new login bridge session.';
+const SESSION_EXPIRED_MESSAGE = 'Session expired. Create a new login bridge session.';
+
 function isCloudExtractionEnabled(): boolean {
   return cloudExtractionEnabledOverride ?? config.sceAutomationEnabled;
 }
@@ -174,6 +177,78 @@ function requireEncryptionKey(): string {
   return key;
 }
 
+async function validateExtractionSessionState(sessionId: number): Promise<{
+  sessionId: number;
+  valid: boolean;
+  checkedAt: string;
+  message: string;
+  currentUrl?: string;
+}> {
+  const session = await prisma.extractionSession.findUnique({
+    where: { id: sessionId },
+    select: {
+      id: true,
+      isActive: true,
+      expiresAt: true,
+      encryptedStateJson: true,
+    },
+  });
+
+  if (!session) {
+    throw new NotFoundError('ExtractionSession', sessionId);
+  }
+
+  const checkedAt = new Date().toISOString();
+  if (!session.isActive) {
+    return {
+      sessionId,
+      valid: false,
+      checkedAt,
+      message: SESSION_INACTIVE_MESSAGE,
+    };
+  }
+
+  if (session.expiresAt.getTime() <= Date.now()) {
+    return {
+      sessionId,
+      valid: false,
+      checkedAt,
+      message: SESSION_EXPIRED_MESSAGE,
+    };
+  }
+
+  const sessionStateJson = decryptJson(
+    session.encryptedStateJson,
+    requireEncryptionKey()
+  );
+
+  try {
+    const result = await sessionValidator({ storageStateJson: sessionStateJson });
+    return {
+      sessionId,
+      valid: true,
+      checkedAt,
+      message: 'Session can access SCE customer-search.',
+      currentUrl: result.currentUrl,
+    };
+  } catch (error) {
+    const reason =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Unknown session validation failure.';
+    logger.warn('Cloud extraction session validation failed', {
+      sessionId,
+      reason,
+    });
+    return {
+      sessionId,
+      valid: false,
+      checkedAt,
+      message: reason,
+    };
+  }
+}
+
 cloudExtractionRoutes.use((req, res, next) => {
   if (!isCloudExtractionEnabled()) {
     res.status(503).json({
@@ -299,82 +374,11 @@ cloudExtractionRoutes.post(
   '/sessions/:id/validate',
   asyncHandler(async (req, res) => {
     const sessionId = parseSessionId(Number(req.params.id));
-
-    const session = await prisma.extractionSession.findUnique({
-      where: { id: sessionId },
-      select: {
-        id: true,
-        isActive: true,
-        expiresAt: true,
-        encryptedStateJson: true,
-      },
+    const result = await validateExtractionSessionState(sessionId);
+    return res.json({
+      success: true,
+      data: result,
     });
-
-    if (!session) {
-      throw new NotFoundError('ExtractionSession', sessionId);
-    }
-
-    const checkedAt = new Date().toISOString();
-    if (!session.isActive) {
-      return res.json({
-        success: true,
-        data: {
-          sessionId,
-          valid: false,
-          checkedAt,
-          message: 'Session is inactive. Create a new login bridge session.',
-        },
-      });
-    }
-
-    if (session.expiresAt.getTime() <= Date.now()) {
-      return res.json({
-        success: true,
-        data: {
-          sessionId,
-          valid: false,
-          checkedAt,
-          message: 'Session expired. Create a new login bridge session.',
-        },
-      });
-    }
-
-    const sessionStateJson = decryptJson(
-      session.encryptedStateJson,
-      requireEncryptionKey()
-    );
-
-    try {
-      const result = await sessionValidator({ storageStateJson: sessionStateJson });
-      return res.json({
-        success: true,
-        data: {
-          sessionId,
-          valid: true,
-          checkedAt,
-          message: 'Session can access SCE customer-search.',
-          currentUrl: result.currentUrl,
-        },
-      });
-    } catch (error) {
-      const reason =
-        error instanceof Error && error.message
-          ? error.message
-          : 'Unknown session validation failure.';
-      logger.warn('Cloud extraction session validation failed', {
-        sessionId,
-        reason,
-      });
-      return res.json({
-        success: true,
-        data: {
-          sessionId,
-          valid: false,
-          checkedAt,
-          message: reason,
-        },
-      });
-    }
   })
 );
 
@@ -427,7 +431,7 @@ cloudExtractionRoutes.post(
 
     const run = await prisma.extractionRun.findUnique({
       where: { id: runId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, sessionId: true },
     });
 
     if (!run) {
@@ -437,6 +441,18 @@ cloudExtractionRoutes.post(
       return res.status(409).json({
         success: false,
         error: { message: `Run ${runId} cannot be started from status ${run.status}` },
+      });
+    }
+
+    const sessionValidation = await validateExtractionSessionState(run.sessionId);
+    if (!sessionValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message:
+            `Run ${runId} cannot be started because session ${run.sessionId} is invalid: ` +
+            sessionValidation.message,
+        },
       });
     }
 
