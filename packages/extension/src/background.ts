@@ -13,6 +13,12 @@ import {
   RouteConfig,
   BatchProgress
 } from './lib/route-processor.js';
+import {
+  tryAcquireLock,
+  releaseLock,
+  isProcessing as checkIsProcessing,
+  getCurrentBatchId,
+} from './lib/route-state.js';
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -106,32 +112,6 @@ const SUBMIT_QUEUE: QueueState = {
   currentJob: null,
   isProcessing: false,
   processedCount: 0,
-};
-
-// ==========================================
-// ROUTE PROCESSING STATE
-// ==========================================
-
-interface RouteBatchState {
-  batchId: string | null;
-  isProcessing: boolean;
-  processedCount: number;
-  totalCount: number;
-  successfulCount: number;
-  failedCount: number;
-  results: any[];
-  progressCallback: ((update: BatchProgress) => void) | null;
-}
-
-const ROUTE_STATE: RouteBatchState = {
-  batchId: null,
-  isProcessing: false,
-  processedCount: 0,
-  totalCount: 0,
-  successfulCount: 0,
-  failedCount: 0,
-  results: [],
-  progressCallback: null,
 };
 
 // ==========================================
@@ -709,50 +689,21 @@ async function processRouteAddresses(
   addresses: RouteAddress[],
   config?: Partial<RouteConfig>
 ): Promise<{ batchId: string; results: any[] }> {
-  if (ROUTE_STATE.isProcessing) {
-    throw new Error('Route processing already in progress');
-  }
-
-  ROUTE_STATE.isProcessing = true;
-  ROUTE_STATE.processedCount = 0;
-  ROUTE_STATE.successfulCount = 0;
-  ROUTE_STATE.failedCount = 0;
-  ROUTE_STATE.results = [];
-
   // Progress callback for real-time updates
   const progressCallback = (update: BatchProgress) => {
-    ROUTE_STATE.batchId = update.batchId;
-    ROUTE_STATE.processedCount = update.current;
-    ROUTE_STATE.totalCount = update.total;
-
-    if (update.result) {
-      ROUTE_STATE.results.push(update.result);
-      if (update.result.success) {
-        ROUTE_STATE.successfulCount++;
-      } else {
-        ROUTE_STATE.failedCount++;
-      }
-    }
-
     // Broadcast progress to popup/options
     broadcastRouteProgress(update);
-
     log('[Route] Progress:', update.message);
   };
 
   try {
     const result = await processRouteBatch(addresses, config, progressCallback);
 
-    ROUTE_STATE.batchId = result.batchId;
-    ROUTE_STATE.results = result.results;
-    ROUTE_STATE.successfulCount = result.results.filter(r => r.success).length;
-    ROUTE_STATE.failedCount = result.results.filter(r => !r.success).length;
-
     log('[Route] Batch complete:', {
       batchId: result.batchId,
       total: result.results.length,
-      successful: ROUTE_STATE.successfulCount,
-      failed: ROUTE_STATE.failedCount
+      successful: result.results.filter(r => r.success).length,
+      failed: result.results.filter(r => !r.success).length
     });
 
     // Save extracted data to cloud server
@@ -762,8 +713,6 @@ async function processRouteAddresses(
   } catch (error) {
     log('[Route] Batch error:', error);
     throw error;
-  } finally {
-    ROUTE_STATE.isProcessing = false;
   }
 }
 
@@ -793,26 +742,29 @@ async function processSingleRouteAddress(
 /**
  * Get current route processing status
  */
-function getRouteStatus(): RouteBatchState {
-  return { ...ROUTE_STATE };
+async function getRouteStatus(): Promise<{ isProcessing: boolean; batchId: string | null }> {
+  const processing = await checkIsProcessing();
+  const batchId = await getCurrentBatchId();
+  return { isProcessing: processing, batchId };
 }
 
 /**
  * Cancel current route processing
  */
-function cancelRouteProcessing(): void {
-  if (ROUTE_STATE.isProcessing) {
-    log('[Route] Cancelling batch:', ROUTE_STATE.batchId);
-    ROUTE_STATE.isProcessing = false;
+async function cancelRouteProcessing(): Promise<void> {
+  const processing = await checkIsProcessing();
+  const batchId = await getCurrentBatchId();
+
+  if (processing) {
+    log('[Route] Cancelling batch:', batchId);
+    await releaseLock();
     // Note: Active tabs will continue processing, but no new addresses will be started
     broadcastRouteProgress({
       type: 'error',
-      batchId: ROUTE_STATE.batchId || '',
-      current: ROUTE_STATE.processedCount,
-      total: ROUTE_STATE.totalCount,
-      percent: ROUTE_STATE.totalCount > 0
-        ? Math.round((ROUTE_STATE.processedCount / ROUTE_STATE.totalCount) * 100)
-        : 0,
+      batchId: batchId || '',
+      current: 0,
+      total: 0,
+      percent: 0,
       message: 'Processing cancelled'
     });
   }
@@ -934,14 +886,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // ==========================================
     // ROUTE PROCESSING ACTIONS
     // ==========================================
-    case 'PROCESS_ROUTE_BATCH':
-      processRouteAddresses(message.addresses, message.config)
-        .then(result => sendResponse({ success: true, data: result }))
-        .catch(error => sendResponse({
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }));
+    case 'PROCESS_ROUTE_BATCH': {
+      const { addresses, config } = message;
+
+      // Generate batch ID first
+      const batchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+      // Atomic lock acquisition
+      tryAcquireLock(batchId).then(async (acquired) => {
+        if (!acquired) {
+          const currentBatch = await getCurrentBatchId();
+          sendResponse({
+            success: false,
+            error: 'Route processing already in progress',
+            currentBatchId: currentBatch,
+          });
+          return;
+        }
+
+        try {
+          const result = await processRouteAddresses(addresses, config);
+          sendResponse({ success: true, data: result });
+        } catch (error) {
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        } finally {
+          await releaseLock();
+        }
+      });
       return true;
+    }
 
     case 'PROCESS_SINGLE_ROUTE':
       processSingleRouteAddress(message.address, message.config)
@@ -953,13 +929,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'GET_ROUTE_STATUS':
-      sendResponse({ success: true, data: getRouteStatus() });
-      break;
+      getRouteStatus()
+        .then(data => sendResponse({ success: true, data }))
+        .catch(error => sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }));
+      return true;
 
     case 'CANCEL_ROUTE_PROCESSING':
-      cancelRouteProcessing();
-      sendResponse({ success: true });
-      break;
+      cancelRouteProcessing()
+        .then(() => sendResponse({ success: true }))
+        .catch(error => sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }));
+      return true;
 
     default:
       sendResponse({ error: 'Unknown action' });
