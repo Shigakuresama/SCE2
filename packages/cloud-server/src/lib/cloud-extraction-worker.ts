@@ -10,6 +10,7 @@ const SHARED_SESSION_FAILURE_PATTERNS = [
   'landed on',
   'could not find sce address fields',
   'could not find sce zip field',
+  'customer-search form was not available',
 ];
 
 function isSharedSessionFailure(message: string): boolean {
@@ -191,5 +192,9 @@ export async function processExtractionRun(
       },
     });
     throw error;
+  } finally {
+    if (typeof deps.client.dispose === 'function') {
+      await deps.client.dispose();
+    }
   }
 }

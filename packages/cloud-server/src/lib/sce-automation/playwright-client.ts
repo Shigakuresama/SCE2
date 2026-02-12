@@ -1,4 +1,10 @@
-import { chromium, type Page } from 'playwright';
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type BrowserContextOptions,
+  type Page,
+} from 'playwright';
 import { config } from '../config.js';
 import { pickFirstNonEmpty } from './selectors.js';
 import type {
@@ -10,6 +16,13 @@ import type {
 interface SCELoginCredentialsInput {
   username: string;
   password: string;
+}
+
+interface ActiveSession {
+  key: string;
+  browser: Browser;
+  context: BrowserContext;
+  page: Page;
 }
 
 const LOGIN_USERNAME_SELECTORS = [
@@ -61,6 +74,13 @@ const SEARCH_BUTTON_SELECTORS = [
   'button:has-text("Search")',
   'button[type="submit"]',
   'input[type="submit"]',
+];
+
+const CUSTOMER_SEARCH_NAV_SELECTORS = [
+  'a:has-text("Customer Search")',
+  'button:has-text("Customer Search")',
+  '[role="menuitem"]:has-text("Customer Search")',
+  '[data-testid*="customer-search" i]',
 ];
 
 const NAME_SELECTORS = [
@@ -201,6 +221,24 @@ function isRetriableNavigationError(error: unknown): boolean {
   return message.includes('err_aborted') || message.includes('navigation interrupted');
 }
 
+function sessionKey(storageStateJson?: string): string {
+  return storageStateJson?.trim() || '__NO_STORAGE_STATE__';
+}
+
+function parseStorageState(
+  storageStateJson?: string
+): BrowserContextOptions['storageState'] {
+  if (!storageStateJson) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(storageStateJson) as BrowserContextOptions['storageState'];
+  } catch {
+    throw new Error('Session state JSON is invalid. Recreate the session before running extraction.');
+  }
+}
+
 async function fillFirstMatchingSelector(
   page: Page,
   selectors: string[],
@@ -239,6 +277,29 @@ async function clickFirstMatchingSelector(page: Page, selectors: string[]): Prom
   }
 
   return false;
+}
+
+async function hasAnySelector(page: Page, selectors: string[]): Promise<boolean> {
+  for (const selector of selectors) {
+    const count = await page.locator(selector).count().catch(() => 0);
+    if (count > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function hasCustomerSearchFields(page: Page): Promise<boolean> {
+  const [hasFullAddress, hasStreetNumber, hasStreetName, hasZip, hasSearchButton] = await Promise.all([
+    hasAnySelector(page, ADDRESS_FULL_SELECTORS),
+    hasAnySelector(page, STREET_NUMBER_SELECTORS),
+    hasAnySelector(page, STREET_NAME_SELECTORS),
+    hasAnySelector(page, ZIP_SELECTORS),
+    hasAnySelector(page, SEARCH_BUTTON_SELECTORS),
+  ]);
+
+  const hasAddress = hasFullAddress || (hasStreetNumber && hasStreetName);
+  return hasAddress && hasZip && hasSearchButton;
 }
 
 async function hasLoginPrompt(page: Page): Promise<boolean> {
@@ -301,6 +362,42 @@ async function navigateToCustomerSearchAfterLogin(page: Page, targetUrl: string)
   );
 }
 
+async function tryRecoverCustomerSearchPage(page: Page, targetUrl: string): Promise<void> {
+  const target = new URL(targetUrl);
+  const targetPath = normalizePath(target.pathname);
+  const recoveryUrls = [
+    targetUrl,
+    `${target.origin}/onsite/customer-search`,
+    `${target.origin}/onsite/#/customer-search`,
+  ];
+
+  for (const url of recoveryUrls) {
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(1400);
+    } catch {
+      continue;
+    }
+
+    if (await hasLoginPrompt(page)) {
+      return;
+    }
+    if (await hasCustomerSearchFields(page)) {
+      return;
+    }
+
+    const currentPath = normalizePath(new URL(page.url()).pathname);
+    if (currentPath === targetPath) {
+      return;
+    }
+  }
+
+  const clickedCustomerSearch = await clickFirstMatchingSelector(page, CUSTOMER_SEARCH_NAV_SELECTORS);
+  if (clickedCustomerSearch) {
+    await page.waitForTimeout(1400);
+  }
+}
+
 async function assertOnCustomerSearchPage(
   page: Page,
   targetUrl: string
@@ -311,26 +408,99 @@ async function assertOnCustomerSearchPage(
     );
   }
 
+  if (await hasCustomerSearchFields(page)) {
+    return;
+  }
+
   const expectedPath = normalizePath(new URL(targetUrl).pathname);
   const actualPath = normalizePath(new URL(page.url()).pathname);
-  if (actualPath !== expectedPath) {
-    if (isOnOnsitePath(actualPath)) {
+  if (actualPath === expectedPath) {
+    return;
+  }
+
+  if (isOnOnsitePath(actualPath)) {
+    await tryRecoverCustomerSearchPage(page, targetUrl);
+
+    if (await hasLoginPrompt(page)) {
       throw new Error(
-        `SCE login succeeded but landed on ${page.url()} instead of ${targetUrl}. ` +
-        'This SCE account/session does not have access to customer-search.'
+        `SCE login required for ${targetUrl}. Refresh session JSON from an authenticated dsmcentral login.`
       );
     }
 
+    if (await hasCustomerSearchFields(page)) {
+      return;
+    }
+
+    const recoveredPath = normalizePath(new URL(page.url()).pathname);
+    if (recoveredPath === expectedPath) {
+      return;
+    }
+
     throw new Error(
-      `Unexpected SCE page (${page.url()}). Expected ${targetUrl}. Login or account access may be missing.`
+      `SCE session landed on ${page.url()} instead of ${targetUrl}. ` +
+        'Customer-search form was not available in automation context.'
     );
   }
+
+  throw new Error(
+    `Unexpected SCE page (${page.url()}). Expected ${targetUrl}. Login or account access may be missing.`
+  );
+}
+
+async function ensureCustomerSearchReady(page: Page, targetUrl: string): Promise<void> {
+  await navigateToCustomerSearchAfterLogin(page, targetUrl);
+  await page.waitForTimeout(1200);
+  await assertOnCustomerSearchPage(page, targetUrl);
 }
 
 export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
+  private activeSession: ActiveSession | null = null;
+
+  async dispose(): Promise<void> {
+    const session = this.activeSession;
+    this.activeSession = null;
+
+    if (!session) {
+      return;
+    }
+
+    await session.context.close().catch(() => undefined);
+    await session.browser.close().catch(() => undefined);
+  }
+
+  private async createFreshSession(storageStateJson?: string): Promise<ActiveSession> {
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      storageState: parseStorageState(storageStateJson),
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(config.sceAutomationTimeoutMs);
+
+    return {
+      key: sessionKey(storageStateJson),
+      browser,
+      context,
+      page,
+    };
+  }
+
+  private async getOrCreatePersistentSession(storageStateJson?: string): Promise<ActiveSession> {
+    const key = sessionKey(storageStateJson);
+    if (this.activeSession && this.activeSession.key === key) {
+      return this.activeSession;
+    }
+
+    await this.dispose();
+    const created = await this.createFreshSession(storageStateJson);
+    this.activeSession = created;
+    return created;
+  }
+
   async createStorageStateFromCredentials(
     credentials: SCELoginCredentialsInput
   ): Promise<string> {
+    await this.dispose();
+
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -369,9 +539,7 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
       ]).catch(() => undefined);
 
       const targetUrl = resolveCustomerSearchUrl();
-      await navigateToCustomerSearchAfterLogin(page, targetUrl);
-      await page.waitForTimeout(1200);
-      await assertOnCustomerSearchPage(page, targetUrl);
+      await ensureCustomerSearchReady(page, targetUrl);
 
       const storageState = await context.storageState();
       return JSON.stringify(storageState);
@@ -384,22 +552,15 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
   async validateSessionAccess(
     options?: { storageStateJson?: string }
   ): Promise<{ currentUrl: string }> {
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-      storageState: options?.storageStateJson ? JSON.parse(options.storageStateJson) : undefined,
-    });
-    const page = await context.newPage();
+    const session = await this.createFreshSession(options?.storageStateJson);
 
     try {
-      page.setDefaultTimeout(config.sceAutomationTimeoutMs);
       const targetUrl = resolveCustomerSearchUrl();
-      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(1200);
-      await assertOnCustomerSearchPage(page, targetUrl);
-      return { currentUrl: page.url() };
+      await ensureCustomerSearchReady(session.page, targetUrl);
+      return { currentUrl: session.page.url() };
     } finally {
-      await context.close();
-      await browser.close();
+      await session.context.close();
+      await session.browser.close();
     }
   }
 
@@ -407,71 +568,60 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
     address: SCEAutomationAddressInput,
     options?: { storageStateJson?: string }
   ): Promise<SCEExtractionResult> {
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-      storageState: options?.storageStateJson ? JSON.parse(options.storageStateJson) : undefined,
-    });
-    const page = await context.newPage();
+    const session = await this.getOrCreatePersistentSession(options?.storageStateJson);
+    const page = session.page;
 
-    try {
-      page.setDefaultTimeout(config.sceAutomationTimeoutMs);
-      const targetUrl = resolveCustomerSearchUrl();
-      await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(1200);
-      await assertOnCustomerSearchPage(page, targetUrl);
+    const targetUrl = resolveCustomerSearchUrl();
+    await ensureCustomerSearchReady(page, targetUrl);
 
-      const fullAddress = `${address.streetNumber} ${address.streetName}`.trim();
-      const filledFullAddress = await fillFirstMatchingSelector(page, ADDRESS_FULL_SELECTORS, fullAddress);
-      if (!filledFullAddress) {
-        const [filledStreetNumber, filledStreetName] = await Promise.all([
-          fillFirstMatchingSelector(page, STREET_NUMBER_SELECTORS, address.streetNumber),
-          fillFirstMatchingSelector(page, STREET_NAME_SELECTORS, address.streetName),
-        ]);
-
-        if (!filledStreetNumber && !filledStreetName) {
-          throw new Error('Could not find SCE address fields on customer-search page. Check login and selectors.');
-        }
-      }
-
-      const filledZip = await fillFirstMatchingSelector(page, ZIP_SELECTORS, address.zipCode);
-      if (!filledZip) {
-        throw new Error('Could not find SCE zip field on customer-search page.');
-      }
-
-      const clickedSearch = await clickFirstMatchingSelector(page, SEARCH_BUTTON_SELECTORS);
-      if (!clickedSearch) {
-        throw new Error('Could not find SCE search button after filling address.');
-      }
-
-      await page.waitForTimeout(1200);
-
-      if (await hasLoginPrompt(page)) {
-        throw new Error('SCE session expired during search. Please refresh the session JSON.');
-      }
-
-      const [customerName, customerPhone, customerEmail] = await Promise.all([
-        firstValueFromSelectors(page, NAME_SELECTORS),
-        firstValueFromSelectors(page, PHONE_SELECTORS),
-        firstValueFromSelectors(page, EMAIL_SELECTORS),
+    const fullAddress = `${address.streetNumber} ${address.streetName}`.trim();
+    const filledFullAddress = await fillFirstMatchingSelector(page, ADDRESS_FULL_SELECTORS, fullAddress);
+    if (!filledFullAddress) {
+      const [filledStreetNumber, filledStreetName] = await Promise.all([
+        fillFirstMatchingSelector(page, STREET_NUMBER_SELECTORS, address.streetNumber),
+        fillFirstMatchingSelector(page, STREET_NAME_SELECTORS, address.streetName),
       ]);
 
-      const hasAnyCustomerData = [customerName, customerPhone, customerEmail].some(
-        (value) => typeof value === 'string' && value.trim().length > 0
-      );
-      if (!hasAnyCustomerData) {
-        throw new Error(
-          'Customer data not found after search. Verify selectors and ensure the address exists in SCE.'
-        );
+      if (!filledStreetNumber && !filledStreetName) {
+        throw new Error('Could not find SCE address fields on customer-search page. Check login and selectors.');
       }
-
-      return {
-        customerName,
-        customerPhone,
-        customerEmail,
-      };
-    } finally {
-      await context.close();
-      await browser.close();
     }
+
+    const filledZip = await fillFirstMatchingSelector(page, ZIP_SELECTORS, address.zipCode);
+    if (!filledZip) {
+      throw new Error('Could not find SCE zip field on customer-search page.');
+    }
+
+    const clickedSearch = await clickFirstMatchingSelector(page, SEARCH_BUTTON_SELECTORS);
+    if (!clickedSearch) {
+      throw new Error('Could not find SCE search button after filling address.');
+    }
+
+    await page.waitForTimeout(1200);
+
+    if (await hasLoginPrompt(page)) {
+      throw new Error('SCE session expired during search. Please refresh the session JSON.');
+    }
+
+    const [customerName, customerPhone, customerEmail] = await Promise.all([
+      firstValueFromSelectors(page, NAME_SELECTORS),
+      firstValueFromSelectors(page, PHONE_SELECTORS),
+      firstValueFromSelectors(page, EMAIL_SELECTORS),
+    ]);
+
+    const hasAnyCustomerData = [customerName, customerPhone, customerEmail].some(
+      (value) => typeof value === 'string' && value.trim().length > 0
+    );
+    if (!hasAnyCustomerData) {
+      throw new Error(
+        'Customer data not found after search. Verify selectors and ensure the address exists in SCE.'
+      );
+    }
+
+    return {
+      customerName,
+      customerPhone,
+      customerEmail,
+    };
   }
 }

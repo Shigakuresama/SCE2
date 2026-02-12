@@ -213,6 +213,55 @@ describe('Cloud Extraction Worker', () => {
     expect(failedRun.items[0].error).toContain('No customer data extracted');
   });
 
+  it('calls client.dispose after run processing', async () => {
+    const { prisma } = await import('../src/lib/database.js');
+    const { encryptJson } = await import('../src/lib/encryption.js');
+    const { processExtractionRun } = await import('../src/lib/cloud-extraction-worker.js');
+
+    const property = await prisma.property.create({
+      data: {
+        addressFull: '999 Dispose Verify St, Santa Ana, CA 92701',
+        streetNumber: '999',
+        streetName: 'Dispose Verify St',
+        zipCode: '92701',
+      },
+    });
+
+    const session = await prisma.extractionSession.create({
+      data: {
+        label: 'Dispose Session',
+        encryptedStateJson: encryptJson('{"cookies":[]}', process.env.SCE_SESSION_ENCRYPTION_KEY!),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    const run = await prisma.extractionRun.create({
+      data: {
+        sessionId: session.id,
+        totalCount: 1,
+        items: {
+          create: [{ propertyId: property.id }],
+        },
+      },
+    });
+
+    let disposeCalls = 0;
+    await processExtractionRun(run.id, {
+      client: {
+        extractCustomerData: async () => ({
+          customerName: 'Dispose Test',
+          customerPhone: '(555) 999-0000',
+          customerEmail: 'dispose@test.com',
+        }),
+        dispose: async () => {
+          disposeCalls += 1;
+        },
+      },
+    });
+
+    expect(disposeCalls).toBe(1);
+  });
+
   it('fails fast and marks remaining queued items when session access is invalid', async () => {
     const { prisma } = await import('../src/lib/database.js');
     const { encryptJson } = await import('../src/lib/encryption.js');
