@@ -9,6 +9,7 @@ import {
   PatchPropertySchema,
   PropertyQuerySchema,
   BatchAddressSchema,
+  DeleteAllQuerySchema,
 } from '../schemas/property.schema.js';
 import z from 'zod';
 
@@ -175,6 +176,7 @@ propertyRoutes.patch(
 // MUST come before /:id route to avoid "all" being treated as an ID
 propertyRoutes.delete(
   '/all',
+  validateQuery(DeleteAllQuerySchema),
   asyncHandler(async (req, res) => {
     const { status } = req.query;
 

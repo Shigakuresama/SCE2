@@ -64,3 +64,8 @@ export const PropertyQuerySchema = z.object({
   limit: z.string().regex(/^\d+$/, 'Limit must be a number').default('50'),
   offset: z.string().regex(/^\d+$/, 'Offset must be a number').default('0'),
 });
+
+// Schema for DELETE /all endpoint query parameters
+export const DeleteAllQuerySchema = z.object({
+  status: PropertyStatusSchema.optional(),
+});
