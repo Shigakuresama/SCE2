@@ -1,6 +1,12 @@
 // packages/cloud-server/src/types/api.ts
 import { Property } from '@prisma/client';
 
+// Validation error detail for API responses
+export interface ValidationErrorDetail {
+  path: string;
+  message: string;
+}
+
 // Standard API response wrapper
 export interface ApiResponse<T = unknown> {
   success: boolean;
@@ -8,11 +14,6 @@ export interface ApiResponse<T = unknown> {
   message?: string;
   error?: string;
   details?: ValidationErrorDetail[];
-}
-
-export interface ValidationErrorDetail {
-  path: string;
-  message: string;
 }
 
 // Paginated response
