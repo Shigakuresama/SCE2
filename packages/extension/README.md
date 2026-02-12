@@ -91,9 +91,11 @@ Access via **Options page** (right-click extension icon → Options) or **Popup*
 ### Starting Processing
 
 1. Click extension icon in browser toolbar
-2. Configure API Base URL if not already set
-3. Click "Start Processing" button
-4. Extension will begin polling for jobs
+2. Click **Open SCE Customer Search** in the popup
+3. Make sure your SCE account is already logged in on that tab (`/onsite/customer-search`)
+4. Configure API Base URL if not already set
+5. Click "Start Processing" button
+6. Extension will begin polling for jobs and scraping each queued customer automatically
 
 ### Monitoring Status
 
@@ -111,7 +113,7 @@ Access via **Options page** (right-click extension icon → Options) or **Popup*
 ### Scrape Mode
 
 1. Extension polls cloud server for properties with status `PENDING_SCRAPE`
-2. Opens SCE website in new tab
+2. Opens `https://sce.dsmcentral.com/onsite/customer-search` in a new tab
 3. Fills customer search form with address/zip code
 4. Extracts customer name and phone from results
 5. Sends extracted data to cloud server
@@ -121,7 +123,7 @@ Access via **Options page** (right-click extension icon → Options) or **Popup*
 ### Submit Mode
 
 1. Extension polls for properties with status `VISITED`
-2. Opens SCE website in new tab
+2. Opens `https://sce.dsmcentral.com/onsite/customer-search` in a new tab
 3. Fills all form sections with customer data and field notes
 4. Uploads photos and documents
 5. Submits application
@@ -178,6 +180,16 @@ Access via **Options page** (right-click extension icon → Options) or **Popup*
 3. Check background console for errors
 4. Ensure CORS origins include extension URL in server config
 5. Enable Debug Mode and check logs
+
+### Queue scrape fails due to login/session
+
+**Symptoms**: Jobs fail with login-related errors or customer-search access errors
+
+**Solutions**:
+1. In the extension popup, click **Open SCE Customer Search**
+2. Confirm you can manually access and use `/onsite/customer-search`
+3. Keep that browser profile/session logged in
+4. Start processing again from the popup
 
 ### Form filling fails
 
