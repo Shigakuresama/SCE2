@@ -54,4 +54,21 @@ describe('RouteState', () => {
     await tryAcquireLock('batch-abc123');
     expect(await getCurrentBatchId()).toBe('batch-abc123');
   });
+
+  it('should auto-release stale locks after timeout', async () => {
+    const { tryAcquireLock, isProcessing } = await import('../src/lib/route-state.js');
+
+    // Manually set a stale lock (6 minutes old)
+    const staleTime = Date.now() - 6 * 60 * 1000;
+    mockStorage['routeProcessingState'] = {
+      isProcessing: true,
+      currentBatchId: 'old-batch',
+      acquiredAt: staleTime,
+    };
+
+    // Should be able to acquire despite existing lock
+    const acquired = await tryAcquireLock('new-batch');
+    expect(acquired).toBe(true);
+    expect(await isProcessing()).toBe(true);
+  });
 });

@@ -2,9 +2,14 @@
 /**
  * Atomic route processing state management using chrome.storage.local
  * as a mutex to prevent concurrent batch processing.
+ *
+ * Note: While chrome.storage.local operations are serialized by Chrome's
+ * internal implementation, this provides "best effort" mutual exclusion
+ * sufficient for the extension's batch processing use case.
  */
 
 const STORAGE_KEY = 'routeProcessingState';
+const STALE_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 interface RouteProcessingState {
   isProcessing: boolean;
@@ -22,8 +27,8 @@ export async function tryAcquireLock(batchId: string): Promise<boolean> {
 
   // Check if already processing
   if (state?.isProcessing) {
-    // Safety: auto-release stale locks older than 5 minutes
-    if (state.acquiredAt && Date.now() - state.acquiredAt > 5 * 60 * 1000) {
+    // Safety: auto-release stale locks older than timeout
+    if (state.acquiredAt && Date.now() - state.acquiredAt > STALE_LOCK_TIMEOUT_MS) {
       console.warn('[RouteState] Releasing stale lock', state);
     } else {
       return false;
