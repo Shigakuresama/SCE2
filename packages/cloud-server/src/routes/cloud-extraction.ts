@@ -238,6 +238,22 @@ cloudExtractionRoutes.post(
 
       throw new ValidationError(`Unable to create session from SCE login: ${reason}`);
     }
+
+    try {
+      await sessionValidator({ storageStateJson: sessionStateJson });
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Unknown login bridge validation failure while testing customer-search access.';
+
+      logger.warn('Cloud extraction login bridge validation failed', {
+        username,
+        reason,
+      });
+
+      throw new ValidationError(`Unable to create session from SCE login: ${reason}`);
+    }
     const encryptedStateJson = encryptJson(sessionStateJson, encryptionKey);
 
     const session = await prisma.extractionSession.create({

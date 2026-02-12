@@ -415,7 +415,36 @@ async function assertOnCustomerSearchPage(
   const expectedPath = normalizePath(new URL(targetUrl).pathname);
   const actualPath = normalizePath(new URL(page.url()).pathname);
   if (actualPath === expectedPath) {
-    return;
+    const waitResult = await Promise.race([
+      waitForAnySelector(page, [...ADDRESS_FULL_SELECTORS, ...ZIP_SELECTORS], 9000)
+        .then(() => 'ready')
+        .catch(() => 'timeout'),
+      (async () => {
+        const start = Date.now();
+        while (Date.now() - start < 9000) {
+          if (await hasLoginPrompt(page)) {
+            return 'login';
+          }
+          await page.waitForTimeout(300);
+        }
+        return 'timeout';
+      })(),
+    ]);
+
+    if (waitResult === 'ready' || (await hasCustomerSearchFields(page))) {
+      return;
+    }
+
+    if (waitResult === 'login' || (await hasLoginPrompt(page))) {
+      throw new Error(
+        `SCE login required for ${targetUrl}. Refresh session JSON from an authenticated dsmcentral login.`
+      );
+    }
+
+    throw new Error(
+      `SCE reached ${targetUrl} but customer-search form was not available. ` +
+        'Session was not fully authenticated in automation context.'
+    );
   }
 
   if (isOnOnsitePath(actualPath)) {
@@ -451,6 +480,22 @@ async function ensureCustomerSearchReady(page: Page, targetUrl: string): Promise
   await navigateToCustomerSearchAfterLogin(page, targetUrl);
   await page.waitForTimeout(1200);
   await assertOnCustomerSearchPage(page, targetUrl);
+}
+
+async function verifyStorageStateRoundTrip(
+  browser: Browser,
+  storageState: BrowserContextOptions['storageState'],
+  targetUrl: string
+): Promise<void> {
+  const context = await browser.newContext({ storageState });
+  const page = await context.newPage();
+  page.setDefaultTimeout(config.sceAutomationTimeoutMs);
+
+  try {
+    await ensureCustomerSearchReady(page, targetUrl);
+  } finally {
+    await context.close().catch(() => undefined);
+  }
 }
 
 export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
@@ -542,6 +587,7 @@ export class PlaywrightSCEAutomationClient implements SCEAutomationClient {
       await ensureCustomerSearchReady(page, targetUrl);
 
       const storageState = await context.storageState();
+      await verifyStorageStateRoundTrip(browser, storageState, targetUrl);
       return JSON.stringify(storageState);
     } finally {
       await context.close();

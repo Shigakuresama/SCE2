@@ -63,7 +63,9 @@ Use this flow for server-side extraction without the extension:
 2. Open webapp Queue page and use the **Cloud Extraction** panel.
 3. Create an encrypted session (recommended: **Login Bridge**):
    - In webapp, use **Create session via login bridge**.
-   - Enter SCE username/password + expiry; cloud performs login and stores encrypted session state.
+   - Enter SCE username/password + expiry; cloud performs login.
+   - Cloud now validates that the resulting session can actually open `/onsite/customer-search` before saving.
+   - If validation fails, no session is saved and the API returns a direct error reason.
    - Credentials are only used for this request and are not persisted in `ExtractionSession`.
 4. Fallback (manual JSON):
    - Start login from:

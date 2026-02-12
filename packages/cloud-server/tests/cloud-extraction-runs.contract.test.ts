@@ -181,6 +181,41 @@ describe('Cloud Extraction Runs Contract', () => {
     expect(res.body.error.message).toContain('Could not find SCE login fields');
   });
 
+  it('does not save login bridge session when customer-search validation fails', async () => {
+    const { setCloudExtractionSessionValidatorForTests } = await import(
+      '../src/routes/cloud-extraction.js'
+    );
+    setCloudExtractionSessionValidatorForTests(async () => {
+      throw new Error(
+        'SCE login required for https://sce.dsmcentral.com/onsite/customer-search. Refresh session JSON from an authenticated dsmcentral login.'
+      );
+    });
+
+    const { buildTestApp } = await import('./helpers/test-app.js');
+    const app = await buildTestApp();
+
+    const before = await request(app).get('/api/cloud-extraction/sessions');
+    const beforeCount = Array.isArray(before.body?.data) ? before.body.data.length : 0;
+
+    const res = await request(app)
+      .post('/api/cloud-extraction/sessions/login-bridge')
+      .send({
+        label: 'Invalid Bridge Session',
+        username: 'first.last@sce.tac',
+        password: 'super-secret-password',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toContain('Unable to create session from SCE login');
+    expect(res.body.error.message).toContain('SCE login required for');
+
+    const after = await request(app).get('/api/cloud-extraction/sessions');
+    const afterCount = Array.isArray(after.body?.data) ? after.body.data.length : 0;
+    expect(afterCount).toBe(beforeCount);
+  });
+
   it('rejects expired session payloads', async () => {
     const { buildTestApp } = await import('./helpers/test-app.js');
     const app = await buildTestApp();
