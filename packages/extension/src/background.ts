@@ -19,6 +19,17 @@ import {
   isProcessing as checkIsProcessing,
   getCurrentBatchId,
 } from './lib/route-state.js';
+import type {
+  Config,
+  ScrapeJob,
+  SubmitJob,
+  QueueState,
+  ScrapeResult,
+  SubmitResult,
+  CustomerSearchReadyResponse,
+  RouteProcessResult,
+  Message,
+} from './types/messages.js';
 
 // ==========================================
 // GLOBAL ERROR HANDLERS
@@ -34,79 +45,9 @@ self.addEventListener('error', (event) => {
 });
 
 // ==========================================
-// TYPE DEFINITIONS
+// TYPE DEFINITIONS (Imported from types/messages.ts)
 // ==========================================
-
-interface Config {
-  apiBaseUrl: string;
-  autoProcess: boolean;
-  autoStart: boolean;
-  pollInterval: number;
-  timeout: number;
-  maxConcurrent: number;
-  debugMode: boolean;
-  submitVisibleSectionOnly: boolean;
-  enableDocumentUpload: boolean;
-  enableFinalSubmit: boolean;
-}
-
-interface ScrapeJob {
-  id: number;
-  streetNumber: string;
-  streetName: string;
-  zipCode: string;
-  addressFull: string;
-}
-
-interface SubmitJob {
-  id: number;
-  streetNumber: string;
-  streetName: string;
-  zipCode: string;
-  addressFull: string;
-  customerName?: string;
-  customerPhone?: string;
-  customerAge?: number;
-  fieldNotes?: string;
-  documents: Array<{
-    id: number;
-    fileName: string;
-    filePath: string;
-    url: string;
-    docType: string;
-  }>;
-}
-
-interface QueueState {
-  items: any[];
-  currentJob: any;
-  isProcessing: boolean;
-  processedCount: number;
-}
-
-interface ScrapeResponse {
-  success: boolean;
-  data?: { customerName: string; customerPhone: string };
-  error?: string;
-}
-
-interface SubmitResponse {
-  success: boolean;
-  sceCaseId?: string;
-  skippedFinalSubmit?: boolean;
-  message?: string;
-  error?: string;
-}
-
-interface CustomerSearchReadyResponse {
-  success: boolean;
-  data?: {
-    ready: boolean;
-    currentUrl: string;
-    reason?: string;
-  };
-  error?: string;
-}
+// All types imported from ./types/messages.js at top of file
 
 const SCE_CUSTOMER_SEARCH_URL = 'https://sce.dsmcentral.com/onsite/customer-search';
 
@@ -132,7 +73,7 @@ const SUBMIT_QUEUE: QueueState = {
 // ==========================================
 const pollingManager = new PollingManager(poll);
 
-function log(...args: any[]): void {
+function log(...args: unknown[]): void {
   getConfig().then(config => {
     if (config.debugMode) {
       console.log('[SCE2]', ...args);
@@ -241,7 +182,7 @@ async function processScrapeJob(job: ScrapeJob): Promise<void> {
     log(`Opened tab ${tab.id} for scrape job ${job.id}`);
 
     // Send scrape command to content script (with retries while script initializes)
-    const response = await sendTabMessageWithRetry<ScrapeResponse>(
+    const result = await sendTabMessageWithRetry<ScrapeResult>(
       tab.id!,
       {
         action: 'SCRAPE_PROPERTY',
@@ -254,8 +195,6 @@ async function processScrapeJob(job: ScrapeJob): Promise<void> {
       },
       4
     );
-
-    const result = response;
 
     if (result.success && result.data) {
       // Send scraped data to cloud
@@ -327,7 +266,7 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
     }));
 
     // Send submit command to content script
-    const response = await sendTabMessageWithRetry<SubmitResponse>(
+    const result = await sendTabMessageWithRetry<SubmitResult>(
       tab.id!,
       {
         action: 'SUBMIT_APPLICATION',
@@ -338,8 +277,6 @@ async function processSubmitJob(job: SubmitJob): Promise<void> {
       },
       4
     );
-
-    const result = response;
 
     if (result.success && result.sceCaseId) {
       // Mark as complete
@@ -705,7 +642,7 @@ configManager.subscribe((config) => {
 async function processRouteAddresses(
   addresses: RouteAddress[],
   config?: Partial<RouteConfig>
-): Promise<{ batchId: string; results: any[] }> {
+): Promise<{ batchId: string; results: RouteProcessResult[] }> {
   // Progress callback for real-time updates
   const progressCallback = (update: BatchProgress) => {
     // Broadcast progress to popup/options
@@ -742,7 +679,7 @@ async function processRouteAddresses(
 async function processSingleRouteAddress(
   address: RouteAddress,
   config?: Partial<RouteConfig>
-): Promise<any> {
+): Promise<RouteProcessResult> {
   log('[Route] Processing single address:', address.full);
 
   const result = await processRouteAddress(address, config);
@@ -804,7 +741,7 @@ function broadcastRouteProgress(update: BatchProgress): void {
  * Save extracted customer data to cloud server
  * @param results - Array of route processing results
  */
-async function saveExtractedDataToCloud(results: any[]): Promise<void> {
+async function saveExtractedDataToCloud(results: RouteProcessResult[]): Promise<void> {
   const config = await getConfig();
 
   // Prepare batch update payload
@@ -855,7 +792,7 @@ getConfig().then(config => {
 // ==========================================
 // MESSAGE HANDLING
 // ==========================================
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
   log('Background received message:', message);
 
   switch (message.action) {
@@ -904,7 +841,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // ROUTE PROCESSING ACTIONS
     // ==========================================
     case 'PROCESS_ROUTE_BATCH': {
-      const { addresses, config } = message;
+      const { addresses, config } = message as Extract<Message, { action: 'PROCESS_ROUTE_BATCH' }>;
 
       // Generate batch ID first
       const batchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -936,14 +873,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
-    case 'PROCESS_SINGLE_ROUTE':
-      processSingleRouteAddress(message.address, message.config)
+    case 'PROCESS_SINGLE_ROUTE': {
+      const msg = message as Extract<Message, { action: 'PROCESS_SINGLE_ROUTE' }>;
+      processSingleRouteAddress(msg.address, msg.config)
         .then(result => sendResponse({ success: true, data: result }))
         .catch(error => sendResponse({
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error'
         }));
       return true;
+    }
 
     case 'GET_ROUTE_STATUS':
       getRouteStatus()

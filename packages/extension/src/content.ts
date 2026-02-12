@@ -42,64 +42,19 @@ import {
 } from './lib/dom-utils.js';
 import { getConfig } from './lib/storage.js';
 import { asyncHandler } from './lib/utils.js';
+import type {
+  ScrapePropertyMessage,
+  SubmitApplicationMessage,
+  FillRouteAddressMessage,
+  Message,
+  ScrapeResult,
+  SubmitResult,
+} from './types/messages.js';
 
 // ==========================================
 // TYPE DEFINITIONS
 // ==========================================
-
-interface ScrapeMessageData {
-  propertyId: number;
-  streetNumber: string;
-  streetName: string;
-  zipCode: string;
-}
-
-interface SubmitMessageData {
-  id: number;
-  streetNumber: string;
-  streetName: string;
-  zipCode: string;
-  customerName: string;
-  customerPhone: string;
-  customerAge?: number;
-  fieldNotes?: string;
-  documents: Array<{
-    url: string;
-    name: string;
-    type: string;
-  }>;
-}
-
-interface ScrapeResult {
-  success: boolean;
-  data?: {
-    customerName: string;
-    customerPhone: string;
-    customerEmail?: string;
-    // All form sections
-    additionalInfo?: Partial<AdditionalCustomerInfo>;
-    projectInfo?: Partial<ProjectInfo>;
-    tradeAllyInfo?: Partial<TradeAllyInfo>;
-    assessmentInfo?: Partial<AssessmentInfo>;
-    householdInfo?: Partial<HouseholdInfo>;
-    enrollmentInfo?: Partial<EnrollmentInfo>;
-    equipmentInfo?: Partial<EquipmentInfo>;
-    basicEnrollmentInfo?: Partial<BasicEnrollmentInfo>;
-    bonusInfo?: Partial<BonusInfo>;
-    termsInfo?: Partial<TermsInfo>;
-    commentsInfo?: Partial<CommentsInfo>;
-    statusInfo?: Partial<StatusInfo>;
-  };
-  error?: string;
-}
-
-interface SubmitResult {
-  success: boolean;
-  sceCaseId?: string;
-  skippedFinalSubmit?: boolean;
-  message?: string;
-  error?: string;
-}
+// Message types imported from ./types/messages.js
 
 // ==========================================
 // SECTION MAPPING
@@ -389,7 +344,7 @@ function extractTradeAllyInfo(): Partial<TradeAllyInfo> {
 // ==========================================
 // SCRAPE MODE
 // ==========================================
-async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResult> {
+async function performScrape(addressData: ScrapePropertyMessage['data']): Promise<ScrapeResult> {
   const helper = new SCEHelper();
 
   console.log('Starting scrape for:', addressData);
@@ -502,7 +457,7 @@ async function performScrape(addressData: ScrapeMessageData): Promise<ScrapeResu
 // ==========================================
 // SUBMIT MODE
 // ==========================================
-async function performSubmit(jobData: SubmitMessageData): Promise<SubmitResult> {
+async function performSubmit(jobData: SubmitApplicationMessage['data']): Promise<SubmitResult> {
   const helper = new SCEHelper();
 
   console.log('Starting submit for:', jobData);
@@ -837,19 +792,19 @@ function checkCustomerSearchReadiness(): {
 // ==========================================
 // MESSAGE HANDLING
 // ==========================================
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
   console.log('Content script received:', message);
 
   switch (message.action) {
     case 'SCRAPE_PROPERTY':
-      performScrape(message.data as ScrapeMessageData)
+      performScrape((message as ScrapePropertyMessage).data)
         .then(sendResponse)
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true; // Keep channel open for async
 
     // Route processing - fill address form on SCE
     case 'fillRouteAddress':
-      handleFillRouteAddress(message.address)
+      handleFillRouteAddress((message as FillRouteAddressMessage).address)
         .then(result => sendResponse({ success: true, data: result }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
@@ -861,7 +816,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false; // Synchronous response, no need to keep channel open
 
     case 'SUBMIT_APPLICATION':
-      performSubmit(message.data as SubmitMessageData)
+      performSubmit((message as SubmitApplicationMessage).data)
         .then(sendResponse)
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true; // Keep channel open for async
