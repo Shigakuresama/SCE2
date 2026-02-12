@@ -51,12 +51,14 @@ prisma/migrations/
 # Extension builds
 packages/extension/dist/
 packages/extension/*.zip
+packages/extension/sce2-extension/
 
 # Auth & session data (never commit!)
 auth/
 sessions/
 cookies.json
 storage.json
+sce-session.json
 
 # Playwright
 playwright-report/
