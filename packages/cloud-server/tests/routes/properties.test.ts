@@ -12,7 +12,7 @@ describe('Property Routes Validation', () => {
   beforeAll(async () => {
     app = await buildTestApp();
     // Generate unique ID for this test run
-    testRunId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    testRunId = `${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     // Clean up test data
     await prisma.property.deleteMany({
       where: { addressFull: { contains: 'TEST_ADDRESS' } },
